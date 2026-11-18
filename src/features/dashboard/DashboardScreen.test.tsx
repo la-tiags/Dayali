@@ -66,6 +66,7 @@ function renderDashboard(overrides: Partial<Parameters<typeof DashboardScreen>[0
     onToggleWidget: vi.fn(),
     onMoveWidget: vi.fn(),
     onResizeWidget: vi.fn(),
+    onDragWidget: vi.fn(),
     ...overrides,
   };
   const utils = render(
@@ -211,5 +212,24 @@ describe("DashboardScreen", () => {
     expect(props.onMoveWidget).toHaveBeenLastCalledWith("w1", "right");
     await user.click(screen.getByRole("button", { name: "Décaler à gauche Agenda" }));
     expect(props.onMoveWidget).toHaveBeenLastCalledWith("w2", "left");
+  });
+
+  it("affiche la poignée de déplacement uniquement en mode édition et permet le déplacement au clavier", async () => {
+    const user = userEvent.setup();
+    const { props } = renderDashboard();
+
+    expect(screen.queryByRole("button", { name: "Déplacer Ma journée" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Modifier la disposition" }));
+
+    const dragHandle = screen.getByRole("button", { name: "Déplacer Ma journée" });
+    expect(dragHandle).toBeInTheDocument();
+
+    dragHandle.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(props.onMoveWidget).toHaveBeenCalledWith("w1", "right");
+
+    await user.keyboard("{ArrowDown}");
+    expect(props.onMoveWidget).toHaveBeenCalledWith("w1", "down");
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { WidgetPlacement } from "./contracts/types";
 import {
   applyMove,
+  applyPosition,
   applyResize,
   clampLayout,
   findFreeSlot,
@@ -95,6 +96,12 @@ describe("dashboardLayout", () => {
   it("déplacer un widget le fait passer devant sans superposition", () => {
     const next = applyMove([widget("a", 0, 0, 4, 4), widget("b", 4, 0, 4, 4)], "b", "left");
     expect(layoutOf(next, "b")).toEqual({ x: 3, y: 0, w: 4, h: 4 });
+    expect(layoutOf(next, "a")?.y).toBe(4);
+  });
+
+  it("déplace un widget directement aux coordonnées (x, y) au curseur", () => {
+    const next = applyPosition([widget("a", 0, 0, 4, 4), widget("b", 4, 0, 4, 4)], "b", 0, 0);
+    expect(layoutOf(next, "b")).toEqual({ x: 0, y: 0, w: 4, h: 4 });
     expect(layoutOf(next, "a")?.y).toBe(4);
   });
 

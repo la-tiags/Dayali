@@ -158,3 +158,16 @@ export function applyMove(
   );
   return resolveLayout(healed, id);
 }
+
+/** Nouvelle disposition après déplacement direct de `id` à la position (x, y) au curseur. */
+export function applyPosition(
+  widgets: readonly WidgetPlacement[],
+  id: string,
+  x: number,
+  y: number,
+): WidgetPlacement[] {
+  const healed = healLayout(widgets).map((widget) =>
+    widget.id === id ? { ...widget, layout: clampLayout({ ...widget.layout, x, y }) } : widget,
+  );
+  return resolveLayout(healed, id);
+}

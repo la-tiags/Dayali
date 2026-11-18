@@ -10,7 +10,13 @@ import {
 import { useNavigate } from "react-router";
 import { Button } from "../../components/ui/Button";
 import type { Config, WidgetPlacement } from "../../lib/contracts/types";
-import { GRID_COLUMNS, healLayout, resizeLayout, resolveLayout } from "../../lib/dashboardLayout";
+import {
+  clampLayout,
+  GRID_COLUMNS,
+  healLayout,
+  resizeLayout,
+  resolveLayout,
+} from "../../lib/dashboardLayout";
 import { CalendarWidget } from "../widgets/CalendarWidget";
 import { ReminderWidget } from "../widgets/ReminderWidget";
 import styles from "./DashboardScreen.module.css";
@@ -28,6 +34,7 @@ export interface DashboardScreenProps {
   onToggleWidget?: (id: string) => void;
   onMoveWidget?: (id: string, direction: "up" | "down" | "left" | "right") => void;
   onResizeWidget?: (id: string, w: number, h: number) => void | Promise<void>;
+  onDragWidget?: (id: string, x: number, y: number) => void | Promise<void>;
 }
 
 const MODULE_LABEL: Record<WidgetPlacement["module"], string> = {
@@ -46,6 +53,13 @@ const RESIZE_KEYS: Record<string, readonly [number, number]> = {
   ArrowUp: [0, -1],
 };
 
+/** Aperçu en cours de drag : position proposée (x, y en cellules de grille). */
+interface DragPreview {
+  id: string;
+  x: number;
+  y: number;
+}
+
 export function DashboardScreen({
   config,
   logicalDate,
@@ -56,17 +70,32 @@ export function DashboardScreen({
   onToggleWidget,
   onMoveWidget,
   onResizeWidget,
+  onDragWidget,
 }: DashboardScreenProps) {
   const navigate = useNavigate();
   const rowHeight = config.dashboard.rowHeight;
   const gridRef = useRef<HTMLDivElement>(null);
-  // Aperçu pendant un redimensionnement : la taille proposée n'est enregistrée qu'au relâchement.
-  const [preview, setPreview] = useState<{ id: string; w: number; h: number } | null>(null);
 
-  // Disposition affichée : une config qui se chevauche est réparée à l'affichage, et pendant
-  // un redimensionnement les voisins gênés sont repoussés vers le bas en direct.
+  // Aperçu pendant un redimensionnement (taille) ou un déplacement (position).
+  const [preview, setPreview] = useState<{ id: string; w: number; h: number } | null>(null);
+  const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
+
+  // Disposition affichée : layout réparé + preview de resize ou de drag appliqué en direct.
   const widgets = useMemo(() => {
     const healed = healLayout(config.dashboard.widgets);
+    if (dragPreview) {
+      return resolveLayout(
+        healed.map((widget) =>
+          widget.id === dragPreview.id
+            ? {
+                ...widget,
+                layout: clampLayout({ ...widget.layout, x: dragPreview.x, y: dragPreview.y }),
+              }
+            : widget,
+        ),
+        dragPreview.id,
+      );
+    }
     if (!preview) return healed;
     return resolveLayout(
       healed.map((widget) =>
@@ -76,7 +105,7 @@ export function DashboardScreen({
       ),
       preview.id,
     );
-  }, [config.dashboard.widgets, preview]);
+  }, [config.dashboard.widgets, preview, dragPreview]);
 
   const commitResize = useCallback(
     (id: string, w: number, h: number) => {
@@ -92,7 +121,7 @@ export function DashboardScreen({
   const [isEditing, setIsEditing] = useState(false);
   const showBanner = started === false && !bannerDismissed;
 
-  /** Glisser la poignée : 1 colonne = 1 cran en largeur, 1 ligne (`rowHeight`) = 1 cran en hauteur. */
+  /** Glisser la poignée de redimensionnement (coin bas-droit). */
   const startResize = (event: ReactPointerEvent<HTMLButtonElement>, widget: WidgetPlacement) => {
     const grid = gridRef.current;
     if (!grid || !onResizeWidget || event.button !== 0) return;
@@ -136,7 +165,59 @@ export function DashboardScreen({
     window.addEventListener("pointercancel", onCancel);
   };
 
-  /** Même poignée au clavier : les flèches agrandissent ou réduisent d'un cran. */
+  /** Glisser la poignée de déplacement (haut du widget). */
+  const startDrag = (event: ReactPointerEvent<HTMLButtonElement>, widget: WidgetPlacement) => {
+    const grid = gridRef.current;
+    if (!grid || !onDragWidget || event.button !== 0) return;
+    event.preventDefault();
+    (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
+
+    const computed = window.getComputedStyle(grid);
+    const gapX = Number.parseFloat(computed.columnGap) || 0;
+    const gapY = Number.parseFloat(computed.rowGap) || 0;
+    const colW = (grid.clientWidth - gapX * (GRID_COLUMNS - 1)) / GRID_COLUMNS;
+    const stepX = colW + gapX || 1;
+    const stepY = rowHeight + gapY || 1;
+
+    // Position du coin haut-gauche du widget au moment du pointerdown.
+    const gridRect = grid.getBoundingClientRect();
+    const startX = widget.layout.x;
+    const startY = widget.layout.y;
+    // Décalage du pointeur dans le widget (pour drag naturel depuis n'importe quel point).
+    const offsetX = event.clientX - gridRect.left - startX * stepX;
+    const offsetY = event.clientY - gridRect.top - startY * stepY;
+
+    let current = { x: startX, y: startY };
+    setDragPreview({ id: widget.id, ...current });
+
+    const onMove = (move: PointerEvent) => {
+      const rawX = Math.round((move.clientX - gridRect.left - offsetX) / stepX);
+      const rawY = Math.round((move.clientY - gridRect.top - offsetY) / stepY);
+      const clamped = clampLayout({ x: rawX, y: rawY, w: widget.layout.w, h: widget.layout.h });
+      if (clamped.x !== current.x || clamped.y !== current.y) {
+        current = { x: clamped.x, y: clamped.y };
+        setDragPreview({ id: widget.id, ...current });
+      }
+    };
+
+    const stop = (commit: boolean) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      setDragPreview(null);
+      if (commit && (current.x !== startX || current.y !== startY)) {
+        void Promise.resolve(onDragWidget(widget.id, current.x, current.y));
+      }
+    };
+    const onUp = () => stop(true);
+    const onCancel = () => stop(false);
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+  };
+
+  /** Flèches clavier sur la poignée de redimensionnement. */
   const resizeWithKeyboard = (event: KeyboardEvent<HTMLButtonElement>, widget: WidgetPlacement) => {
     const delta = RESIZE_KEYS[event.key];
     if (!delta || !onResizeWidget) return;
@@ -149,6 +230,20 @@ export function DashboardScreen({
     if (next.w !== widget.layout.w || next.h !== widget.layout.h) {
       commitResize(widget.id, next.w, next.h);
     }
+  };
+
+  /** Flèches clavier sur la poignée de déplacement. */
+  const moveWithKeyboard = (event: KeyboardEvent<HTMLButtonElement>, widget: WidgetPlacement) => {
+    const dirMap: Record<string, "up" | "down" | "left" | "right"> = {
+      ArrowUp: "up",
+      ArrowDown: "down",
+      ArrowLeft: "left",
+      ArrowRight: "right",
+    };
+    const dir = dirMap[event.key];
+    if (!dir || !onMoveWidget) return;
+    event.preventDefault();
+    onMoveWidget(widget.id, dir);
   };
 
   const invitationBanner = showBanner ? (
@@ -247,10 +342,20 @@ export function DashboardScreen({
         ) : null}
         {widgets.map((widget) => {
           const view = config.views.find((candidate) => candidate.id === widget.viewId);
+          const isDragging = dragPreview?.id === widget.id;
+          const isResizing = preview?.id === widget.id;
           return (
             <section
               key={widget.id}
-              className={`${styles.card} ${widget.enabled ? "" : styles.cardDisabled} ${isEditing ? styles.cardEditing : ""} ${preview?.id === widget.id ? styles.cardResizing : ""}`}
+              className={[
+                styles.card,
+                widget.enabled ? "" : styles.cardDisabled,
+                isEditing ? styles.cardEditing : "",
+                isResizing ? styles.cardResizing : "",
+                isDragging ? styles.cardDragging : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
               aria-labelledby={`${widget.id}-title`}
               style={
                 {
@@ -259,6 +364,23 @@ export function DashboardScreen({
                 } as CSSProperties
               }
             >
+              {/* Poignée de déplacement (drag, haut du widget, mode édition) */}
+              {isEditing && onDragWidget ? (
+                <button
+                  type="button"
+                  className={styles.dragHandle}
+                  aria-label={`Déplacer ${widget.title ?? MODULE_LABEL[widget.module]}`}
+                  title="Glisser pour déplacer le widget (ou flèches du clavier)"
+                  onPointerDown={(event) => startDrag(event, widget)}
+                  onKeyDown={(event) => moveWithKeyboard(event, widget)}
+                >
+                  <span className={styles.dragGrip} aria-hidden="true">
+                    ⠿
+                  </span>
+                  <span className={styles.dragLabel}>Déplacer</span>
+                </button>
+              ) : null}
+
               <div className={styles.cardHeader}>
                 <h2 className={styles.cardTitle} id={`${widget.id}-title`}>
                   {widget.title ?? MODULE_LABEL[widget.module]}
@@ -292,7 +414,7 @@ export function DashboardScreen({
 
               {isEditing && onResizeWidget ? (
                 <>
-                  {preview?.id === widget.id ? (
+                  {isResizing ? (
                     <span className={styles.sizeBadge} aria-hidden="true">
                       {widget.layout.w} × {widget.layout.h}
                     </span>

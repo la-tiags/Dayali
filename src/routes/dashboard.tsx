@@ -4,7 +4,13 @@ import { AppShell } from "../components/layout/AppShell";
 import { StatusBanners } from "../components/ui/StatusBanners";
 import { DashboardScreen } from "../features/dashboard/DashboardScreen";
 import type { SavedView, WidgetPlacement } from "../lib/contracts/types";
-import { applyMove, applyResize, findFreeSlot, healLayout } from "../lib/dashboardLayout";
+import {
+  applyMove,
+  applyPosition,
+  applyResize,
+  findFreeSlot,
+  healLayout,
+} from "../lib/dashboardLayout";
 import { isDayStarted, logicalDay } from "../lib/day";
 import { resolveTimeZone, systemTimeZone } from "../lib/time";
 import { useClock } from "../lib/useClock";
@@ -129,6 +135,15 @@ export function DashboardRoute() {
     [config, persistWidgets, reloadConfig],
   );
 
+  const handleDragWidget = useCallback(
+    async (id: string, x: number, y: number) => {
+      if (!config) return;
+      await persistWidgets(applyPosition(config.dashboard.widgets, id, x, y));
+      await reloadConfig();
+    },
+    [config, persistWidgets, reloadConfig],
+  );
+
   const handleOpenDashboardOnLaunchChange = useCallback(
     (value: boolean) => {
       void setOpenDashboardOnLaunch(value);
@@ -176,6 +191,7 @@ export function DashboardRoute() {
         onToggleWidget={(id) => void handleToggleWidget(id)}
         onMoveWidget={(id, dir) => void handleMoveWidget(id, dir)}
         onResizeWidget={(id, w, h) => handleResizeWidget(id, w, h)}
+        onDragWidget={(id, x, y) => handleDragWidget(id, x, y)}
       />
     </AppShell>
   );

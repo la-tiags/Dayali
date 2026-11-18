@@ -274,6 +274,17 @@
   z-index: 2;
 }
 
+.cardDragging {
+  opacity: 0.65;
+  border-style: solid;
+  border-color: var(--color-accent);
+  box-shadow:
+    0 8px 24px rgb(0 0 0 / 25%),
+    0 0 0 2px var(--color-accent);
+  z-index: 10;
+  cursor: grabbing;
+}
+
 .resizeHandle {
   position: absolute;
   right: var(--space-1);
@@ -318,6 +329,47 @@
   font-weight: 600;
 }
 
+.dragHandle {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-bg-elevated);
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  z-index: 3;
+}
+
+.dragHandle:hover,
+.dragHandle:focus-visible {
+  border-color: var(--color-accent);
+  background-color: var(--color-surface);
+  color: var(--color-accent);
+}
+
+.dragHandle:active {
+  cursor: grabbing;
+}
+
+.dragGrip {
+  font-size: 0.875rem;
+  line-height: 1;
+}
+
+.dragLabel {
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
 @media (width <= 56.25rem) {
   .grid {
     grid-auto-rows: auto;
@@ -333,7 +385,8 @@
   /* En colonne unique, largeur et position ne se règlent plus : pas de poignée ni de repères. */
   .gridGuides,
   .resizeHandle,
-  .sizeBadge {
+  .sizeBadge,
+  .dragHandle {
     display: none;
   }
 
