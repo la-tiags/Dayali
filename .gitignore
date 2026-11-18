@@ -56,9 +56,6 @@ SPEC.md
 docs/
 .opencode/
 
-# ── Fichiers de schémas générés (reconstruits à la volée) ────────────────────
-src/lib/schemas/generated/
-
 # ── Misc ─────────────────────────────────────────────────────────────────────
 *.tgz
 *.zip
