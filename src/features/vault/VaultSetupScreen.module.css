@@ -95,6 +95,10 @@
   font-size: 0.9375rem;
 }
 
+.treeFigure {
+  margin: 0;
+}
+
 .tree {
   margin: 0;
   padding: var(--space-3) var(--space-4);

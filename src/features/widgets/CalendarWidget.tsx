@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { addDays, compareAgendaItems } from "../../lib/agenda";
-import type { CalendarItem, SavedView, WidgetPlacement } from "../../lib/contracts/types";
+import type {
+  AgendaFilter,
+  CalendarItem,
+  SavedView,
+  WidgetPlacement,
+} from "../../lib/contracts/types";
 import { getIpc } from "../../lib/ipc";
 import { calendarView } from "./viewAdapters";
 
@@ -21,6 +26,8 @@ export function CalendarWidget({
   injectedError,
 }: CalendarWidgetProps) {
   const adapted = calendarView(view);
+  // Clé stable du filtre : seul un changement de contenu relance le chargement.
+  const filterKey = adapted.kind === "ready" ? JSON.stringify(adapted.filter) : null;
   const [items, setItems] = useState<readonly CalendarItem[] | null>(injectedItems ?? null);
   const [warnings, setWarnings] = useState<readonly string[]>(injectedWarnings ?? []);
   const [error, setError] = useState(injectedError ?? "");
@@ -34,19 +41,20 @@ export function CalendarWidget({
       setError(injectedError ?? "");
       return;
     }
-    if (adapted.kind !== "ready") {
+    if (filterKey === null) {
       setItems(null);
       setWarnings([]);
       setLoading(false);
       return;
     }
+    const filter = JSON.parse(filterKey) as AgendaFilter;
     let active = true;
     setLoading(true);
     setItems(null);
     setWarnings([]);
     setError("");
     void getIpc()
-      .calendarList({ from: logicalDate, to: addDays(logicalDate, adapted.filter.rangeDays ?? 0) })
+      .calendarList({ from: logicalDate, to: addDays(logicalDate, filter.rangeDays ?? 0) })
       .then((result) => {
         if (active) {
           setItems(result.items);
@@ -64,11 +72,7 @@ export function CalendarWidget({
     return () => {
       active = false;
     };
-  }, [
-    logicalDate,
-    adapted.kind === "ready" ? JSON.stringify(adapted.filter) : "incompatible",
-    injectedItems,
-  ]);
+  }, [logicalDate, filterKey, injectedItems, injectedWarnings, injectedError]);
 
   const visible = items
     ?.filter(

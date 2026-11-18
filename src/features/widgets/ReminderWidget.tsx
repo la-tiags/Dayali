@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
-import type { Reminder, SavedView, WidgetPlacement } from "../../lib/contracts/types";
+import type {
+  Reminder,
+  RemindersFilter,
+  SavedView,
+  WidgetPlacement,
+} from "../../lib/contracts/types";
 import { getIpc } from "../../lib/ipc";
 import { remindersView } from "./viewAdapters";
 
@@ -12,6 +17,11 @@ export interface ReminderWidgetProps {
   injectedError?: string;
 }
 
+// Un rappel abandonné est conservé pour audit/restauration, jamais affiché
+// dans un widget opérationnel.
+const visibleItems = (value: readonly Reminder[]) =>
+  value.filter((item) => item.status !== "abandoned");
+
 export function ReminderWidget({
   view,
   logicalDate,
@@ -20,14 +30,12 @@ export function ReminderWidget({
   injectedError,
 }: ReminderWidgetProps) {
   const adapted = remindersView(view);
-  // Un rappel abandonné est conservé pour audit/restauration, jamais affiché
-  // dans un widget opérationnel.
-  const visibleItems = (value: readonly Reminder[]) =>
-    value.filter((item) => item.status !== "abandoned");
+  // Clé stable du filtre : seul un changement de contenu relance le chargement.
+  const filterKey = adapted.kind === "ready" ? JSON.stringify(adapted.filter) : null;
   const [items, setItems] = useState<readonly Reminder[] | null>(
     injectedItems ? visibleItems(injectedItems) : null,
   );
-  const [warning] = useState(injectedWarning ?? "");
+  const warning = injectedWarning ?? "";
   const [error, setError] = useState(injectedError ?? "");
   const [loading, setLoading] = useState(injectedItems === undefined && adapted.kind === "ready");
 
@@ -38,17 +46,18 @@ export function ReminderWidget({
       setError(injectedError ?? "");
       return;
     }
-    if (adapted.kind !== "ready") {
+    if (filterKey === null) {
       setItems(null);
       setLoading(false);
       return;
     }
+    const filter = JSON.parse(filterKey) as RemindersFilter;
     let active = true;
     setLoading(true);
     setItems(null);
     setError("");
     void getIpc()
-      .reminderList(adapted.filter)
+      .reminderList(filter)
       .then((result) => {
         if (active) {
           setItems(visibleItems(result));
@@ -65,7 +74,7 @@ export function ReminderWidget({
     return () => {
       active = false;
     };
-  }, [adapted.kind === "ready" ? JSON.stringify(adapted.filter) : "incompatible", injectedItems]);
+  }, [filterKey, injectedItems, injectedError]);
 
   return (
     <div aria-busy={loading}>

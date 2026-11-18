@@ -415,7 +415,7 @@ export function CalendarScreen({
         </div>
       </header>
 
-      <div className={styles.viewToolbar} role="region" aria-label="Commandes du calendrier">
+      <section className={styles.viewToolbar} aria-label="Commandes du calendrier">
         <div
           className={styles.viewSwitcher}
           role="tablist"
@@ -467,7 +467,7 @@ export function CalendarScreen({
             Suivant
           </Button>
         </div>
-      </div>
+      </section>
 
       {resolvedZone.warning ? (
         <p className={styles.info} role="status" aria-live="polite">

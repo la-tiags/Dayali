@@ -91,6 +91,8 @@
 }
 
 .card {
+  grid-column: var(--card-column, auto);
+  grid-row: var(--card-row, auto);
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -235,7 +237,7 @@
   }
 
   .card {
-    grid-column: 1 / -1 !important;
-    grid-row: auto !important;
+    grid-column: 1 / -1;
+    grid-row: auto;
   }
 }

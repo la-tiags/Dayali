@@ -24,9 +24,11 @@ export function resetIpc(): void {
 export function getIpc(): IpcApi {
   if (override) return override;
   if (isTauriRuntime()) return tauriIpc;
-  if (typeof window !== "undefined" && (window as any).__DAYALI_IPC__) {
-    return (window as any).__DAYALI_IPC__;
-  }
+  const injected =
+    typeof window !== "undefined"
+      ? (window as unknown as { __DAYALI_IPC__?: IpcApi }).__DAYALI_IPC__
+      : undefined;
+  if (injected) return injected;
   if (import.meta.env.MODE === "screenshots") {
     browserMock ??= createRichMockIpc();
     return browserMock;

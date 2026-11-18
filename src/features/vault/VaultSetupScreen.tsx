@@ -374,13 +374,15 @@ export function VaultSetupScreen({
                       <code className={styles.summaryValue}>{previewPath}</code>
                     </div>
                   </div>
-                  <pre className={styles.tree} aria-label="Exemple d'arborescence créée">
-                    {[
-                      `${baseName(parentPath || "Documents")}/`,
-                      `└── ${name}/`,
-                      `    └── .dayali/`,
-                    ].join("\n")}
-                  </pre>
+                  <figure className={styles.treeFigure} aria-label="Exemple d'arborescence créée">
+                    <pre className={styles.tree}>
+                      {[
+                        `${baseName(parentPath || "Documents")}/`,
+                        `└── ${name}/`,
+                        `    └── .dayali/`,
+                      ].join("\n")}
+                    </pre>
+                  </figure>
                   <p className={styles.example}>
                     La création configurera le vault sur votre disque de manière totalement locale.
                   </p>

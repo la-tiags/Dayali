@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type CSSProperties, useState } from "react";
 import { useNavigate } from "react-router";
 import { Button } from "../../components/ui/Button";
 import type { Config, WidgetPlacement } from "../../lib/contracts/types";
@@ -123,15 +123,16 @@ export function DashboardScreen({
         {widgets.map((widget) => {
           const view = config.views.find((candidate) => candidate.id === widget.viewId);
           return (
-            <div
+            <section
               key={widget.id}
               className={`${styles.card} ${widget.enabled ? "" : styles.cardDisabled} ${isEditing ? styles.cardEditing : ""}`}
-              role="region"
               aria-labelledby={`${widget.id}-title`}
-              style={{
-                gridColumn: `${widget.layout.x + 1} / span ${widget.layout.w}`,
-                gridRow: `${widget.layout.y + 1} / span ${widget.layout.h}`,
-              }}
+              style={
+                {
+                  "--card-column": `${widget.layout.x + 1} / span ${widget.layout.w}`,
+                  "--card-row": `${widget.layout.y + 1} / span ${widget.layout.h}`,
+                } as CSSProperties
+              }
             >
               <div className={styles.cardHeader}>
                 <h2 className={styles.cardTitle} id={`${widget.id}-title`}>
@@ -207,7 +208,7 @@ export function DashboardScreen({
                   ) : null}
                 </div>
               ) : null}
-            </div>
+            </section>
           );
         })}
       </div>

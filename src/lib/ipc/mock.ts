@@ -585,7 +585,10 @@ export function createMockIpc(options: MockIpcOptions = {}): MockIpc {
     },
 
     async reminderReport(input: ReminderReportInput): Promise<Reminder> {
-      if (typeof window !== "undefined" && (window as any).__FAIL_REMINDER_REPORT__) {
+      if (
+        typeof window !== "undefined" &&
+        (window as unknown as { __FAIL_REMINDER_REPORT__?: boolean }).__FAIL_REMINDER_REPORT__
+      ) {
         throw new IpcError("E_CONFLICT", "Conflit disque simulé : écriture concurrente détectée.");
       }
       const reminder = reminders.find((item) => item.id === input.reminderId);
