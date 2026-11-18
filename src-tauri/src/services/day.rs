@@ -5,7 +5,7 @@
 //! `instant - dayStartHour heures`. Les changements d'heure sont résolus par la
 //! base IANA (`chrono-tz`), jamais par un décalage fixe.
 //!
-//! La fixture partagée `docs/examples/day-cases.json` verrouille cette
+//! La fixture partagée `tests/fixtures/day-cases.json` verrouille cette
 //! implémentation avec la version TypeScript (PLAN §1.7, §7.3).
 
 use chrono::{DateTime, Duration, NaiveDate, Utc};
@@ -75,7 +75,7 @@ mod tests {
     /// années bissextiles.
     #[test]
     fn matches_shared_day_cases_fixture() {
-        let raw = include_str!("../../../docs/examples/day-cases.json");
+        let raw = include_str!("../../../tests/fixtures/day-cases.json");
         let fixture: serde_json::Value = serde_json::from_str(raw).unwrap();
         let cases = fixture["cases"].as_array().unwrap();
         assert_eq!(cases.len(), 11, "la fixture doit garder ses 11 cas");

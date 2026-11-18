@@ -3,13 +3,13 @@ import { baseName, isAbsolutePath, joinPath, validateVaultName } from "./paths";
 
 describe("joinPath", () => {
   it("compose un chemin POSIX sans double séparateur", () => {
-    expect(joinPath("/Users/tiago/Documents", "Dayali")).toBe("/Users/tiago/Documents/Dayali");
-    expect(joinPath("/Users/tiago/Documents/", "/Dayali/")).toBe("/Users/tiago/Documents/Dayali");
+    expect(joinPath("/Users/alice/Documents", "Dayali")).toBe("/Users/alice/Documents/Dayali");
+    expect(joinPath("/Users/alice/Documents/", "/Dayali/")).toBe("/Users/alice/Documents/Dayali");
   });
 
   it("conserve le séparateur Windows", () => {
-    expect(joinPath("C:\\Users\\tiago\\Documents", "Dayali")).toBe(
-      "C:\\Users\\tiago\\Documents\\Dayali",
+    expect(joinPath("C:\\Users\\alice\\Documents", "Dayali")).toBe(
+      "C:\\Users\\alice\\Documents\\Dayali",
     );
   });
 
@@ -20,16 +20,16 @@ describe("joinPath", () => {
 
 describe("baseName", () => {
   it("extrait le dernier segment", () => {
-    expect(baseName("/Users/tiago/Documents/Dayali")).toBe("Dayali");
-    expect(baseName("/Users/tiago/Documents/Dayali/")).toBe("Dayali");
-    expect(baseName("C:\\Users\\tiago\\Dayali")).toBe("Dayali");
+    expect(baseName("/Users/alice/Documents/Dayali")).toBe("Dayali");
+    expect(baseName("/Users/alice/Documents/Dayali/")).toBe("Dayali");
+    expect(baseName("C:\\Users\\alice\\Dayali")).toBe("Dayali");
   });
 });
 
 describe("isAbsolutePath", () => {
   it("reconnaît les chemins absolus des trois OS", () => {
-    expect(isAbsolutePath("/Users/tiago")).toBe(true);
-    expect(isAbsolutePath("C:\\Users\\tiago")).toBe(true);
+    expect(isAbsolutePath("/Users/alice")).toBe(true);
+    expect(isAbsolutePath("C:\\Users\\alice")).toBe(true);
     expect(isAbsolutePath("\\\\serveur\\partage")).toBe(true);
     expect(isAbsolutePath("Documents/Dayali")).toBe(false);
     expect(isAbsolutePath("")).toBe(false);

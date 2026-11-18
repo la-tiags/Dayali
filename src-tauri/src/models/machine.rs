@@ -573,7 +573,7 @@ mod tests {
             file_id: "0199a1b2-4d5e-7f60-8a1b-2c3d4e5f6a7b".to_string(),
             project_id: Some("refonte-site--3fa9c2d1".to_string()),
             target_path: "projects/refonte-site--3fa9c2d1/files/specs.docx".to_string(),
-            source_path: Some("/Users/tiago/Documents/Refonte/specs.docx".to_string()),
+            source_path: Some("/Users/alice/Documents/Refonte/specs.docx".to_string()),
             temp_path: Some(".dayali/tmp/0199a1b2-d6e7-72a8-8da4-1f2a3b4c5d6e.part".to_string()),
             expected_size: 184_320,
             expected_hash: "a".repeat(64),

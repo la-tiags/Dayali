@@ -68,15 +68,15 @@ mod tests {
     #[test]
     fn machine_file_lives_in_the_config_directory() {
         let app_paths = AppPaths {
-            config_dir: "/Users/tiago/Library/Application Support/app.dayali.desktop".to_string(),
-            data_dir: "/Users/tiago/Library/Application Support/app.dayali.desktop".to_string(),
-            cache_dir: "/Users/tiago/Library/Caches/app.dayali.desktop".to_string(),
-            log_dir: "/Users/tiago/Library/Logs/app.dayali.desktop".to_string(),
+            config_dir: "/Users/alice/Library/Application Support/app.dayali.desktop".to_string(),
+            data_dir: "/Users/alice/Library/Application Support/app.dayali.desktop".to_string(),
+            cache_dir: "/Users/alice/Library/Caches/app.dayali.desktop".to_string(),
+            log_dir: "/Users/alice/Library/Logs/app.dayali.desktop".to_string(),
         };
         assert_eq!(
             machine_local_path(&app_paths),
             PathBuf::from(
-                "/Users/tiago/Library/Application Support/app.dayali.desktop/machine.json"
+                "/Users/alice/Library/Application Support/app.dayali.desktop/machine.json"
             )
         );
     }

@@ -37,7 +37,7 @@ export const machineLocalSchema = z
         z.null(),
       ])
       .describe(
-        "Chemin absolu local du dernier vault ouvert avec succès, null tant qu'aucun vault n'a été ouvert. Mis à jour atomiquement à chaque vault_open réussi ; ne figure ni dans config.json ni dans .dayali/machines/<machineId>.json. Exemples : macOS /Users/tiago/Documents/Dayali ; Windows C:\\\\Users\\\\tiago\\\\Documents\\\\Dayali ; Linux /home/tiago/Dayali. Un chemin n'est jamais interprété sur une autre machine.",
+        "Chemin absolu local du dernier vault ouvert avec succès, null tant qu'aucun vault n'a été ouvert. Mis à jour atomiquement à chaque vault_open réussi ; ne figure ni dans config.json ni dans .dayali/machines/<machineId>.json. Exemples : macOS /Users/alice/Documents/Dayali ; Windows C:\\\\Users\\\\alice\\\\Documents\\\\Dayali ; Linux /home/alice/Dayali. Un chemin n'est jamais interprété sur une autre machine.",
       ),
     recentVaults: z
       .array(

@@ -7,7 +7,7 @@ import { VaultSetupScreen } from "./VaultSetupScreen";
 
 const DOCS = "/Users/mock/Documents";
 const TRAVAIL = "/Users/mock/Documents/Travail";
-const RECENT_A = "/Users/tiago/Documents/Dayali";
+const RECENT_A = "/Users/alice/Documents/Dayali";
 const RECENT_B = "/Volumes/Partage/Dayali";
 
 function renderScreen(overrides: Partial<ComponentProps<typeof VaultSetupScreen>> = {}) {

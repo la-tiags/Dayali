@@ -301,9 +301,9 @@ mod tests {
 
     #[test]
     fn absolute_path_detection() {
-        assert!(is_absolute_path("/Users/tiago/Dayali"));
-        assert!(is_absolute_path("C:\\Users\\tiago\\Dayali"));
-        assert!(is_absolute_path("C:/Users/tiago/Dayali"));
+        assert!(is_absolute_path("/Users/alice/Dayali"));
+        assert!(is_absolute_path("C:\\Users\\alice\\Dayali"));
+        assert!(is_absolute_path("C:/Users/alice/Dayali"));
         assert!(is_absolute_path("\\\\serveur\\partage\\Dayali"));
         assert!(!is_absolute_path("Dayali"));
         assert!(!is_absolute_path("~/Dayali"));

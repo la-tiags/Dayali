@@ -139,9 +139,9 @@ mod tests {
             schema_version: 1,
             machine_id: "0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5b".to_string(),
             created_at: "2026-10-20T07:05:00.000Z".to_string(),
-            last_vault_path: Some("/Users/tiago/Documents/Dayali".to_string()),
+            last_vault_path: Some("/Users/alice/Documents/Dayali".to_string()),
             recent_vaults: vec![
-                "/Users/tiago/Documents/Dayali".to_string(),
+                "/Users/alice/Documents/Dayali".to_string(),
                 "/Volumes/Partage/Dayali".to_string(),
             ],
         }
@@ -154,7 +154,7 @@ mod tests {
         let value = serde_json::to_value(&local).unwrap();
         assert_eq!(value["schemaVersion"], 1);
         assert_eq!(value["machineId"], local.machine_id);
-        assert_eq!(value["lastVaultPath"], "/Users/tiago/Documents/Dayali");
+        assert_eq!(value["lastVaultPath"], "/Users/alice/Documents/Dayali");
         assert!(value.get("last_vault_path").is_none());
         let parsed: MachineLocal = serde_json::from_value(value).unwrap();
         assert_eq!(parsed, local);
