@@ -1,0 +1,569 @@
+import { useCallback, useEffect, useId, useState } from "react";
+import { useNavigate } from "react-router";
+import { Button } from "../../components/ui/Button";
+import { StatusBanners } from "../../components/ui/StatusBanners";
+import { addDays } from "../../lib/agenda";
+import {
+  clearEndOfDayDraft,
+  type EndOfDayDraftState,
+  loadEndOfDayDraft,
+  type QuickAddDraftTask,
+  saveEndOfDayDraft,
+} from "../../lib/contracts/end-of-day-draft";
+import type { CalendarListResult, LocalDate, Reminder } from "../../lib/contracts/types";
+import { formatLocalDate, logicalDay } from "../../lib/day";
+import { getIpc } from "../../lib/ipc";
+import { normalizeIpcError, userMessage } from "../../lib/ipc/errors";
+import { formatLocalDateLong, resolveTimeZone, systemTimeZone } from "../../lib/time";
+import { useClock } from "../../lib/useClock";
+import { useAppStore } from "../../stores/app.store";
+import styles from "./EndOfDayScreen.module.css";
+
+export interface EndOfDayScreenProps {
+  now?: Date;
+  timeZone?: string;
+  locale?: string;
+  logicalDate?: LocalDate;
+}
+
+export function EndOfDayScreen({
+  now: injectedNow,
+  timeZone: injectedTimeZone,
+  locale: injectedLocale,
+  logicalDate: injectedLogicalDate,
+}: EndOfDayScreenProps) {
+  const navigate = useNavigate();
+  // All hooks must be called unconditionally at the top level
+  const now = useClock(30_000);
+  const vault = useAppStore((state) => state.vault);
+  const config = useAppStore((state) => state.config);
+  const dayState = useAppStore((state) => state.dayState);
+  const busy = useAppStore((state) => state.busy);
+  const error = useAppStore((state) => state.error);
+  const conflictCopy = useAppStore((state) => state.configConflictCopy);
+  const reloadConfig = useAppStore((state) => state.reloadConfig);
+  const dismissError = useAppStore((state) => state.dismissError);
+
+  const effectiveNow = injectedNow ?? now;
+  const resolvedZone = resolveTimeZone(injectedTimeZone ?? systemTimeZone());
+  const timeZone = resolvedZone.timeZone;
+  const locale = injectedLocale ?? config?.locale ?? "fr-FR";
+  const logicalDate =
+    injectedLogicalDate ??
+    (config && dayState
+      ? logicalDay(effectiveNow, config.dayStartHour, timeZone)
+      : formatLocalDate(effectiveNow, timeZone));
+
+  const vaultRoot = vault?.root ?? "default-vault";
+  const tomorrow = addDays(logicalDate, 1);
+
+  const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [calendarTomorrow, setCalendarTomorrow] = useState<CalendarListResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [taskErrors, setTaskErrors] = useState<Record<string, string>>({});
+  const [replanDateInputs, setReplanDateInputs] = useState<Record<string, string>>({});
+  const [showReplanInputFor, setShowReplanInputFor] = useState<string | null>(null);
+
+  // Draft state
+  const [quickAddInput, setQuickAddInput] = useState("");
+  const [draftTasks, setDraftTasks] = useState<QuickAddDraftTask[]>([]);
+  const [journalNote, setJournalNote] = useState("");
+  const [intents, setIntents] = useState<
+    Record<
+      string,
+      { action: "tomorrow" | "replan" | "abandon" | "restore"; newDueDate?: LocalDate }
+    >
+  >({});
+  const [isFinished, setIsFinished] = useState(false);
+  const [summaryStats, setSummaryStats] = useState({ processed: 0, quickAdded: 0 });
+
+  const titleId = useId();
+  const quickAddId = useId();
+
+  const handleCloseNavigation = useCallback(() => {
+    navigate("/dashboard");
+  }, [navigate]);
+
+  // Load draft on mount
+  useEffect(() => {
+    const draft = loadEndOfDayDraft(vaultRoot, logicalDate);
+    if (draft) {
+      setDraftTasks(draft.quickAddTasks);
+      setJournalNote(draft.journalNote);
+      const mappedIntents: Record<
+        string,
+        { action: "tomorrow" | "replan" | "abandon" | "restore"; newDueDate?: LocalDate }
+      > = {};
+      for (const [id, intent] of Object.entries(draft.intents)) {
+        mappedIntents[id] = {
+          action: intent.action,
+          ...(intent.newDueDate ? { newDueDate: intent.newDueDate } : {}),
+        };
+      }
+      setIntents(mappedIntents);
+    }
+  }, [vaultRoot, logicalDate]);
+
+  // Save draft helper
+  const persistDraft = useCallback(
+    (currentIntents = intents, currentDraftTasks = draftTasks, currentNote = journalNote) => {
+      const state: EndOfDayDraftState = {
+        vaultRoot,
+        logicalDate,
+        intents: Object.fromEntries(
+          Object.entries(currentIntents).map(([id, val]) => [
+            id,
+            {
+              reminderId: id,
+              action: val.action,
+              ...(val.newDueDate ? { newDueDate: val.newDueDate } : {}),
+            },
+          ]),
+        ),
+        quickAddTasks: currentDraftTasks,
+        journalNote: currentNote,
+        updatedAt: new Date().toISOString(),
+      };
+      saveEndOfDayDraft(state);
+    },
+    [vaultRoot, logicalDate, intents, draftTasks, journalNote],
+  );
+
+  // Load data (reminders and tomorrow's calendar)
+  useEffect(() => {
+    let mounted = true;
+    async function loadData() {
+      try {
+        setLoading(true);
+        setLoadError(null);
+        const [remList, calRes] = await Promise.all([
+          getIpc().reminderList(),
+          getIpc().calendarList({ from: tomorrow, to: tomorrow }),
+        ]);
+        if (!mounted) return;
+        setReminders(remList);
+        setCalendarTomorrow(calRes);
+      } catch (err) {
+        if (!mounted) return;
+        setLoadError(userMessage(normalizeIpcError(err)));
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+    void loadData();
+    return () => {
+      mounted = false;
+    };
+  }, [tomorrow]);
+
+  // Reminder action handler (tomorrow, replan, abandon, restore)
+  const handleAction = async (
+    reminderId: string,
+    action: "tomorrow" | "replan" | "abandon" | "restore",
+    newDueDate?: LocalDate,
+  ) => {
+    setTaskErrors((prev) => ({ ...prev, [reminderId]: "" }));
+    try {
+      const ref = await getIpc().reminderFileRef({ id: reminderId });
+      const targetDueDate =
+        action === "tomorrow"
+          ? tomorrow
+          : action === "replan"
+            ? (newDueDate ?? tomorrow)
+            : undefined;
+      const updated = await getIpc().reminderReport({
+        reminderId,
+        action,
+        ...(targetDueDate ? { newDueDate: targetDueDate } : {}),
+        expected: ref.hash,
+        sourceDay: logicalDate,
+        logicalDay: logicalDate,
+      });
+
+      setReminders((prev) => prev.map((r) => (r.id === reminderId ? updated : r)));
+
+      const newIntents = {
+        ...intents,
+        [reminderId]: { action, ...(targetDueDate ? { newDueDate: targetDueDate } : {}) },
+      };
+      setIntents(newIntents);
+      persistDraft(newIntents);
+      setShowReplanInputFor(null);
+    } catch (err) {
+      const msg = userMessage(normalizeIpcError(err));
+      setTaskErrors((prev) => ({ ...prev, [reminderId]: msg }));
+    }
+  };
+
+  // Quick add task for tomorrow
+  const handleQuickAddKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && quickAddInput.trim()) {
+      e.preventDefault();
+      const newTask: QuickAddDraftTask = {
+        tempId: crypto.randomUUID(),
+        title: quickAddInput.trim(),
+        dueDate: tomorrow,
+      };
+      const updated = [...draftTasks, newTask];
+      setDraftTasks(updated);
+      setQuickAddInput("");
+      persistDraft(intents, updated, journalNote);
+    }
+  };
+
+  const removeQuickAdd = (tempId: string) => {
+    const updated = draftTasks.filter((t) => t.tempId !== tempId);
+    setDraftTasks(updated);
+    persistDraft(intents, updated, journalNote);
+  };
+
+  // Finalize / Close "Bonne soirée"
+  const handleFinish = async () => {
+    let addedCount = 0;
+    for (const task of draftTasks) {
+      try {
+        await getIpc().reminderSave({
+          reminder: {
+            schemaVersion: 1,
+            id: crypto.randomUUID(),
+            listId: reminders[0]?.listId ?? "",
+            title: task.title,
+            notes: null,
+            status: "open",
+            dueDate: task.dueDate,
+            dueTime: null,
+            dueTimeZone: null,
+            projectId: null,
+            completedAt: null,
+            abandonedAt: null,
+            recurrence: null,
+            sortKey: null,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            machineId: vault?.machineId ?? "machine",
+          },
+        });
+        addedCount++;
+      } catch {
+        // ignore partial quick add failure
+      }
+    }
+
+    setSummaryStats({
+      processed: Object.keys(intents).length,
+      quickAdded: addedCount,
+    });
+    setIsFinished(true);
+    clearEndOfDayDraft(vaultRoot, logicalDate);
+  };
+
+  const banners = (
+    <StatusBanners
+      error={error}
+      conflictCopy={conflictCopy}
+      timeZoneWarning={resolvedZone.warning}
+      reloading={busy}
+      onReloadConfig={() => void reloadConfig()}
+      onDismissError={dismissError}
+    />
+  );
+
+  // Early return ONLY after all hooks have been declared
+  if (!vault) {
+    return (
+      <main className={styles.screen}>
+        <p role="status" className={styles.loadingText}>
+          Chargement de la fin de journée…
+        </p>
+      </main>
+    );
+  }
+
+  const openReminders = reminders.filter((r) => r.status === "open");
+  const doneReminders = reminders.filter((r) => r.status === "done");
+  const abandonedReminders = reminders.filter((r) => r.status === "abandoned");
+
+  return (
+    <div className={styles.screen}>
+      <div className={styles.background} aria-hidden="true" />
+      <div className={styles.veil} aria-hidden="true" />
+
+      {banners ? <div className={styles.banners}>{banners}</div> : null}
+
+      <main className={styles.content}>
+        {isFinished ? (
+          <section aria-labelledby={titleId} className={styles.finishedScreen}>
+            <h1 id={titleId} className={styles.finishedTitle}>
+              Bonne soirée ! 🌙
+            </h1>
+            <p className={styles.finishedText}>
+              Votre bilan de la journée du {formatLocalDateLong(logicalDate, locale)} est
+              enregistré.
+            </p>
+            <div className={styles.finishedBox}>
+              <p>
+                <strong>Tâches traitées / reportées :</strong> {summaryStats.processed}
+              </p>
+              <p>
+                <strong>Nouvelles tâches pour demain :</strong> {summaryStats.quickAdded}
+              </p>
+              <p>
+                <strong>Événements demain ({formatLocalDateLong(tomorrow, locale)}) :</strong>{" "}
+                {calendarTomorrow?.items.length ?? 0}
+              </p>
+            </div>
+            <Button size="lg" variant="primary" onClick={handleCloseNavigation}>
+              Retour au dashboard
+            </Button>
+          </section>
+        ) : (
+          <div className={styles.layout}>
+            <div className={styles.topBar}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleCloseNavigation}
+                aria-label="Retour au dashboard"
+              >
+                ← Retour au dashboard
+              </Button>
+            </div>
+
+            <header className={styles.header}>
+              <p className={styles.eyebrow}>
+                Fin de journée · {formatLocalDateLong(logicalDate, locale)}
+              </p>
+              <h1 id={titleId} className={styles.title}>
+                Fin de journée
+              </h1>
+              <p className={styles.meta}>
+                Bilan de la journée du {formatLocalDateLong(logicalDate, locale)}
+              </p>
+            </header>
+
+            {loadError ? (
+              <div role="alert" className={styles.alertBox}>
+                Erreur de chargement : {loadError}
+              </div>
+            ) : null}
+
+            {loading ? (
+              <p role="status" className={styles.loadingText}>
+                Chargement du bilan…
+              </p>
+            ) : (
+              <>
+                {/* Bilan du jour */}
+                <section aria-labelledby="bilan-section" className={styles.section}>
+                  <h2 id="bilan-section" className={styles.sectionTitle}>
+                    Résumé du jour
+                  </h2>
+                  <div className={styles.statsGrid}>
+                    <div className={styles.statCard}>
+                      <div className={styles.statValue}>{doneReminders.length}</div>
+                      <div className={styles.statLabel}>Tâches faites</div>
+                    </div>
+                    <div className={styles.statCard}>
+                      <div className={styles.statValue}>{openReminders.length}</div>
+                      <div className={styles.statLabel}>Tâches ouvertes</div>
+                    </div>
+                    <div className={styles.statCard}>
+                      <div className={styles.statValue}>{abandonedReminders.length}</div>
+                      <div className={styles.statLabel}>Tâches abandonnées</div>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Tâches non terminées */}
+                <section aria-labelledby="unresolved-tasks" className={styles.section}>
+                  <h2 id="unresolved-tasks" className={styles.sectionTitle}>
+                    Tâches non terminées ({openReminders.length})
+                  </h2>
+                  {openReminders.length === 0 ? (
+                    <p>Aucune tâche ouverte. Excellent travail !</p>
+                  ) : (
+                    <ul className={styles.taskList}>
+                      {openReminders.map((reminder) => {
+                        const intent = intents[reminder.id];
+                        const taskErr = taskErrors[reminder.id];
+                        const isReplanOpen = showReplanInputFor === reminder.id;
+
+                        return (
+                          <li key={reminder.id} className={styles.taskItem}>
+                            <div className={styles.taskContentRow}>
+                              <div className={styles.taskTitleInfo}>
+                                <strong className={styles.taskTitle}>{reminder.title}</strong>
+                                {reminder.dueDate ? (
+                                  <span className={styles.taskDueDate}>
+                                    (Échéance : {reminder.dueDate})
+                                  </span>
+                                ) : null}
+                                {intent ? (
+                                  <span className={styles.taskIntent}>
+                                    [Action: {intent.action}]
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className={styles.taskActions}>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => void handleAction(reminder.id, "tomorrow")}
+                                  aria-label={`Reporter à demain : ${reminder.title}`}
+                                >
+                                  Reporter à demain
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() =>
+                                    setShowReplanInputFor(isReplanOpen ? null : reminder.id)
+                                  }
+                                  aria-label={`Replanifier : ${reminder.title}`}
+                                >
+                                  Replanifier…
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => void handleAction(reminder.id, "abandon")}
+                                  aria-label={`Abandonner : ${reminder.title}`}
+                                >
+                                  Abandonner
+                                </Button>
+                              </div>
+                            </div>
+
+                            {isReplanOpen ? (
+                              <div className={styles.replanForm}>
+                                <input
+                                  type="date"
+                                  aria-label="Nouvelle date d'échéance"
+                                  className={styles.dateInput}
+                                  value={replanDateInputs[reminder.id] ?? tomorrow}
+                                  onChange={(e) =>
+                                    setReplanDateInputs({
+                                      ...replanDateInputs,
+                                      [reminder.id]: e.target.value,
+                                    })
+                                  }
+                                />
+                                <Button
+                                  size="sm"
+                                  onClick={() =>
+                                    void handleAction(
+                                      reminder.id,
+                                      "replan",
+                                      replanDateInputs[reminder.id] ?? tomorrow,
+                                    )
+                                  }
+                                >
+                                  Valider replanification
+                                </Button>
+                              </div>
+                            ) : null}
+
+                            {taskErr ? (
+                              <div role="alert" className={styles.taskError}>
+                                Erreur : {taskErr}
+                              </div>
+                            ) : null}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </section>
+
+                {/* Tâches abandonnées / restaurables */}
+                {abandonedReminders.length > 0 ? (
+                  <section aria-labelledby="abandoned-section" className={styles.section}>
+                    <h2 id="abandoned-section" className={styles.sectionTitle}>
+                      Tâches abandonnées ({abandonedReminders.length})
+                    </h2>
+                    <ul className={styles.taskList}>
+                      {abandonedReminders.map((reminder) => (
+                        <li key={reminder.id} className={styles.abandonedItem}>
+                          <span className={styles.abandonedTitle}>{reminder.title}</span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => void handleAction(reminder.id, "restore")}
+                            aria-label={`Restaurer ${reminder.title}`}
+                          >
+                            Restaurer
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
+
+                {/* Saisie rapide de tâches pour demain */}
+                <section aria-labelledby="quick-add-section" className={styles.section}>
+                  <h2 id="quick-add-section" className={styles.sectionTitle}>
+                    Tâches pour demain ({formatLocalDateLong(tomorrow, locale)})
+                  </h2>
+                  <label htmlFor={quickAddId} className={styles.quickAddLabel}>
+                    Ajouter une tâche (Appuyez sur Entrée) :
+                  </label>
+                  <input
+                    id={quickAddId}
+                    type="text"
+                    value={quickAddInput}
+                    onChange={(e) => setQuickAddInput(e.target.value)}
+                    onKeyDown={handleQuickAddKeyDown}
+                    placeholder="Ex: Préparer la réunion de cadrage..."
+                    className={styles.textInput}
+                  />
+                  {draftTasks.length > 0 ? (
+                    <ul className={styles.quickAddList}>
+                      {draftTasks.map((t) => (
+                        <li key={t.tempId} className={styles.quickAddItem}>
+                          <span>{t.title}</span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => removeQuickAdd(t.tempId)}
+                          >
+                            Supprimer
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </section>
+
+                {/* Aperçu de l'agenda de demain */}
+                <section aria-labelledby="agenda-tomorrow" className={styles.section}>
+                  <h2 id="agenda-tomorrow" className={styles.sectionTitle}>
+                    Agenda de demain ({formatLocalDateLong(tomorrow, locale)})
+                  </h2>
+                  {!calendarTomorrow || calendarTomorrow.items.length === 0 ? (
+                    <p>Aucun événement prévu demain dans l'agenda.</p>
+                  ) : (
+                    <ul className={styles.taskList}>
+                      {calendarTomorrow.items.map((ev) => (
+                        <li key={ev.uid} className={styles.agendaItem}>
+                          <strong>{ev.title}</strong>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+
+                {/* Clôture Bonne soirée */}
+                <div className={styles.finishContainer}>
+                  <Button size="lg" variant="primary" onClick={() => void handleFinish()}>
+                    Bonne soirée 🌙
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}

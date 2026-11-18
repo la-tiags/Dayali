@@ -1,0 +1,14 @@
+#!/bin/sh
+# Pre-commit hook for Dayali
+# Refuse le commit si pnpm verify échoue.
+#
+# Versionné dans `.githooks/` : `pnpm install` (script `prepare`) exécute
+# `scripts/install-hooks.mjs`, qui pointe `core.hooksPath` vers ce dossier.
+# Un clone neuf est donc protégé sans manipulation manuelle.
+
+echo "=== Exécution pnpm verify avant commit ==="
+pnpm verify 2>&1 || {
+    echo "ÉCHEC : pnpm verify a échoué. Commit refusé."
+    exit 1
+}
+echo "Succès : pnpm verify passé. Commit autorisé."

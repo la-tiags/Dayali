@@ -1,0 +1,47 @@
+/**
+ * Repro du constat B-02 (AUDIT-LOGIQUE) : « En retard » ignore l'heure et le
+ * fuseau. `isOverdue` ne compare que `dueDate < logicalDay`.
+ *
+ * Conséquence : un rappel dû aujourd'hui à 09:00 n'est jamais « en retard »
+ * à 18:00 ; et une échéance due à 23:00 est « en retard » dès 05:00.
+ *
+ * Ce test ÉCHOUE sur `main`.
+ */
+import { describe, expect, it } from "vitest";
+import type { Reminder } from "../../src/lib/contracts/types";
+import { isOverdue } from "../../src/lib/reminders";
+
+const base: Reminder = {
+  schemaVersion: 1,
+  id: "00000000-0000-7000-8000-000000000002",
+  listId: "00000000-0000-7000-8000-0000000000aa",
+  title: "Rappel du jour",
+  notes: null,
+  status: "open",
+  dueDate: "2026-11-12",
+  dueTime: "09:00",
+  dueTimeZone: "Europe/Paris",
+  projectId: null,
+  completedAt: null,
+  abandonedAt: null,
+  priority: null,
+  recurrence: null,
+  sortKey: null,
+  createdAt: "2026-11-01T08:00:00.000Z",
+  updatedAt: "2026-11-01T08:00:00.000Z",
+  machineId: "11111111-1111-7111-8111-111111111111",
+};
+
+describe("AUDIT B-02 — calcul « En retard »", () => {
+  it("un rappel dû aujourd'hui à 09:00 est en retard à 18:00", () => {
+    // La signature actuelle n'accepte pas l'instant courant : le défaut est
+    // structurel. On documente qu'à 18:00 le rappel n'est pas marqué en retard.
+    const now = new Date("2026-11-12T18:00:00+01:00");
+    const sameLogicalDay = "2026-11-12";
+    expect(now.getHours()).toBe(18);
+    // Sans l'instant courant, seul le jour logique est comparé.
+    expect(isOverdue(base, sameLogicalDay)).toBe(false);
+    // Attendu métier avec l'instant courant : true (09:00 < 18:00).
+    expect(isOverdue(base, sameLogicalDay, now)).toBe(true);
+  });
+});

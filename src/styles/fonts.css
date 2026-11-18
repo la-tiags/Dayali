@@ -1,0 +1,12 @@
+/*
+ * Polices embarquées — aucun appel réseau, aucune dépendance à un service
+ * de polices en ligne. Licence et provenance : assets/fonts/<famille>/.
+ */
+
+@font-face {
+  font-family: "Lora";
+  src: url("../assets/fonts/lora/Lora-VariableFont_wght.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+}

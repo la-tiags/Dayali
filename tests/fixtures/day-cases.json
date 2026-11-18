@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "description": "Cas de test partagés entre l'implémentation TypeScript (affichage) et Rust (nommage des fichiers) de logicalDay(instant, dayStartHour, timeZone) = date locale de (instant - dayStartHour heures). Les instants sont en UTC RFC 3339 avec Z ; expectedDate est la date civile locale attendue. Aucune dépendance à l'horloge réelle. Voir PLAN §1.7, §2.3 et §7.3.",
+  "cases": [
+    {
+      "id": "paris-avant-4h",
+      "instant": "2026-10-27T02:30:00.000Z",
+      "timeZone": "Europe/Paris",
+      "dayStartHour": 4,
+      "expectedDate": "2026-10-26",
+      "note": "03:30 heure locale (CET) : la journée logique du 26 est encore active."
+    },
+    {
+      "id": "paris-3h59",
+      "instant": "2026-10-27T02:59:00.000Z",
+      "timeZone": "Europe/Paris",
+      "dayStartHour": 4,
+      "expectedDate": "2026-10-26",
+      "note": "03:59 heure locale : encore la veille."
+    },
+    {
+      "id": "paris-4h00",
+      "instant": "2026-10-27T03:00:00.000Z",
+      "timeZone": "Europe/Paris",
+      "dayStartHour": 4,
+      "expectedDate": "2026-10-27",
+      "note": "04:00 heure locale : nouvelle journée logique."
+    },
+    {
+      "id": "paris-printemps-dst",
+      "instant": "2026-03-29T01:30:00.000Z",
+      "timeZone": "Europe/Paris",
+      "dayStartHour": 4,
+      "expectedDate": "2026-03-28",
+      "note": "Après le saut 02:00→03:00 (CEST) : 03:30 locale, journée logique de la veille."
+    },
+    {
+      "id": "paris-automne-dst",
+      "instant": "2026-10-25T01:30:00.000Z",
+      "timeZone": "Europe/Paris",
+      "dayStartHour": 4,
+      "expectedDate": "2026-10-24",
+      "note": "Heure d'été repliée (CET) : 02:30 locale, journée logique de la veille."
+    },
+    {
+      "id": "new-york-printemps-dst",
+      "instant": "2026-03-08T06:30:00.000Z",
+      "timeZone": "America/New_York",
+      "dayStartHour": 4,
+      "expectedDate": "2026-03-07",
+      "note": "01:30 EST avant le saut 02:00→03:00."
+    },
+    {
+      "id": "new-york-apres-dst",
+      "instant": "2026-03-08T07:30:00.000Z",
+      "timeZone": "America/New_York",
+      "dayStartHour": 4,
+      "expectedDate": "2026-03-07",
+      "note": "03:30 EDT après le saut : la journée logique n'a pas changé."
+    },
+    {
+      "id": "journee-minuit",
+      "instant": "2026-10-27T00:30:00.000Z",
+      "timeZone": "Europe/Paris",
+      "dayStartHour": 0,
+      "expectedDate": "2026-10-27",
+      "note": "dayStartHour=0 : la journée logique est la date civile locale."
+    },
+    {
+      "id": "journee-23h",
+      "instant": "2026-10-27T21:30:00.000Z",
+      "timeZone": "Europe/Paris",
+      "dayStartHour": 23,
+      "expectedDate": "2026-10-26",
+      "note": "22:30 locale moins 23 h = 23:30 la veille : la journée du 26 est encore active."
+    },
+    {
+      "id": "annee-bissextile-avant",
+      "instant": "2028-02-29T02:30:00.000Z",
+      "timeZone": "Europe/Paris",
+      "dayStartHour": 4,
+      "expectedDate": "2028-02-28",
+      "note": "29 février à 03:30 locale : journée logique du 28."
+    },
+    {
+      "id": "annee-bissextile-apres",
+      "instant": "2028-02-29T03:00:00.000Z",
+      "timeZone": "Europe/Paris",
+      "dayStartHour": 4,
+      "expectedDate": "2028-02-29",
+      "note": "29 février à 04:00 locale : journée logique du 29."
+    }
+  ]
+}

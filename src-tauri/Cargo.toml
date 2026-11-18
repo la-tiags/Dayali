@@ -1,0 +1,39 @@
+[package]
+name = "dayali"
+version = "0.1.0"
+description = "Dayali — poste de pilotage personnel local-first"
+authors = ["Tiago"]
+edition = "2021"
+rust-version = "1.90"
+default-run = "dayali"
+
+[lib]
+name = "dayali_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2.12.5", features = [] }
+tauri-plugin-dialog = "=2.8.4"
+tauri-plugin-updater = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+uuid = { version = "1", features = ["v7"] }
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+iana-time-zone = "0.1"
+unicode-normalization = "0.1"
+thiserror = "2"
+icalendar = { version = "0.17.17", features = ["parser", "recurrence", "chrono-tz", "strict-dates"] }
+rrule = "0.14.0"
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+# Aucune feature custom en (a) : la surface IPC est limitée aux commandes nommées
+# déclarées dans `src/lib.rs` et dans `src-tauri/permissions/`.
+default = []
