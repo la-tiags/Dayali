@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/icon.png" alt="Dayali" width="96" />
+  <img src="public/favicon.svg" alt="Dayali" width="96" />
 </p>
 
 <h1 align="center">Dayali</h1>
