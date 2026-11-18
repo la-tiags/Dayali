@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome ci .",
     "format": "biome format --write .",
-    "verify": "pnpm typecheck && pnpm test && pnpm build && cd src-tauri && cargo check && cargo test",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && cd src-tauri && cargo check && cargo test",
     "screenshots": "playwright test",
     "prepare": "node scripts/install-hooks.mjs",
     "generate:contracts": "node scripts/generate-contracts.mjs",

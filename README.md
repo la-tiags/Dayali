@@ -14,6 +14,7 @@
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey" alt="platform" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license" />
   <img src="https://img.shields.io/badge/status-alpha-orange" alt="status" />
+  <a href="https://github.com/la-tiags/Dayali/actions/workflows/verify.yml"><img src="https://github.com/la-tiags/Dayali/actions/workflows/verify.yml/badge.svg" alt="verify" /></a>
 </p>
 
 ---
@@ -77,8 +78,8 @@ Sur **Linux** : `libwebkit2gtk-4.1`, `libappindicator3`, `librsvg2` (voir [tauri
 
 ```bash
 # Cloner le dépôt
-git clone https://github.com/votre-pseudo/dayali.git
-cd dayali
+git clone https://github.com/la-tiags/Dayali.git
+cd Dayali
 
 # Installer les dépendances JS
 pnpm install
@@ -96,6 +97,7 @@ pnpm tauri build      # Build Tauri complet (installeur natif)
 pnpm test             # Tests unitaires Vitest
 pnpm typecheck        # Vérification TypeScript
 pnpm lint             # Linter Biome
+pnpm verify           # Tout : lint, types, tests, build, Rust (= hook de commit et CI)
 cd src-tauri && cargo test  # Tests Rust
 ```
 
@@ -141,7 +143,7 @@ vault/
 Le projet est en **alpha** et les contributions sont les bienvenues. Quelques points avant d'ouvrir une PR :
 
 1. Les fichiers `docs/`, `SPEC.md` et `PROGRESS.md` sont exclus du dépôt (notes de conception privées).
-2. Lancez `pnpm lint && pnpm typecheck && pnpm test` avant tout commit.
+2. Lancez `pnpm verify` avant tout commit (le hook git et la CI GitHub exécutent la même chaîne).
 3. Respectez la structure de vault documentée ci-dessus — les changements de schéma doivent être validés.
 4. Les photos d'accueil embarquées sont toutes sous licence CC0 1.0 (voir `src/assets/home/README.md`).
 
