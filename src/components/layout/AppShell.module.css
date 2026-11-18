@@ -35,21 +35,29 @@
   font-weight: 400;
   font-size: 0.9375rem;
   color: var(--color-text-muted);
-  text-decoration: underline;
-  text-underline-offset: 4px;
-  text-decoration-color: var(--color-border);
+  text-decoration: none;
   padding: var(--space-1) 0;
-  transition:
-    color 0.15s ease,
-    text-decoration-color 0.15s ease;
+  transition: color 0.15s ease;
 }
 
 .backHomeLink:hover {
   color: var(--color-text);
+}
+
+/* Seul le libellé est souligné, pas la flèche. */
+.backLabel {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-decoration-color: var(--color-border);
+  transition: text-decoration-color 0.15s ease;
+}
+
+.backHomeLink:hover .backLabel {
   text-decoration-color: var(--color-text);
 }
 
 .backArrow {
+  text-decoration: none;
   font-family: system-ui, -apple-system, sans-serif;
   font-style: normal;
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { photoOfTheDay } from "../../assets/home/photos";
 import { Button } from "../../components/ui/Button";
@@ -26,6 +26,17 @@ export interface EndOfDayScreenProps {
   locale?: string;
   logicalDate?: LocalDate;
 }
+
+/** Étoiles filantes : positions de départ (%), délai et durée du cycle (s) fixes pour un rendu stable. */
+const SHOOTING_STARS = [
+  { top: 6, left: 55, delay: 0.1, duration: 5.5 },
+  { top: 18, left: 12, delay: 0.7, duration: 6.5 },
+  { top: 4, left: 28, delay: 1.4, duration: 7 },
+  { top: 30, left: 70, delay: 2.1, duration: 6 },
+  { top: 12, left: 82, delay: 3.2, duration: 8 },
+  { top: 38, left: 35, delay: 4.3, duration: 7.5 },
+  { top: 24, left: 48, delay: 5.4, duration: 9 },
+] as const;
 
 export function EndOfDayScreen({
   now: injectedNow,
@@ -85,6 +96,32 @@ export function EndOfDayScreen({
 
   const titleId = useId();
   const quickAddId = useId();
+  const screenRef = useRef<HTMLDivElement>(null);
+  const finishRef = useRef<HTMLDivElement>(null);
+
+  // Assombrit progressivement l'arrière-plan quand on approche du bas de la page.
+  // Écoute en phase de capture : fonctionne quel que soit le conteneur qui scrolle.
+  useEffect(() => {
+    // Le conteneur n'existe qu'une fois le vault chargé et le bilan affiché.
+    if (!vault || loading || isFinished) return;
+    const update = () => {
+      const screen = screenRef.current;
+      const finish = finishRef.current;
+      if (!screen || !finish) return;
+      const viewportHeight = window.innerHeight;
+      const { top } = finish.getBoundingClientRect();
+      // 0 tant que le bouton final est hors de vue, 1 quand il est bien remonté dans l'écran.
+      const progress = Math.min(1, Math.max(0, (viewportHeight - top) / (viewportHeight * 0.55)));
+      screen.style.setProperty("--night", progress.toFixed(3));
+    };
+    update();
+    window.addEventListener("scroll", update, { capture: true, passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, { capture: true });
+      window.removeEventListener("resize", update);
+    };
+  }, [vault, loading, isFinished]);
 
   const handleCloseNavigation = useCallback(() => {
     navigate("/dashboard");
@@ -290,9 +327,29 @@ export function EndOfDayScreen({
   const abandonedReminders = reminders.filter((r) => r.status === "abandoned");
 
   return (
-    <div className={styles.screen}>
+    <div
+      ref={screenRef}
+      className={[styles.screen, isFinished ? styles.screenFinished : ""].filter(Boolean).join(" ")}
+    >
       <div className={styles.background} aria-hidden="true" style={backgroundStyle} />
       <div className={styles.veil} aria-hidden="true" />
+      <div className={styles.nightVeil} aria-hidden="true" />
+      {isFinished ? (
+        <div className={styles.stars} aria-hidden="true">
+          {SHOOTING_STARS.map((star) => (
+            <span
+              key={`${star.top}-${star.left}`}
+              className={styles.star}
+              style={{
+                top: `${star.top}%`,
+                left: `${star.left}%`,
+                animationDelay: `${star.delay}s`,
+                animationDuration: `${star.duration}s`,
+              }}
+            />
+          ))}
+        </div>
+      ) : null}
 
       {banners ? <div className={styles.banners}>{banners}</div> : null}
 
@@ -318,9 +375,11 @@ export function EndOfDayScreen({
                 {calendarTomorrow?.items.length ?? 0}
               </p>
             </div>
-            <Button size="lg" variant="primary" onClick={handleCloseNavigation}>
-              Retour au dashboard
-            </Button>
+            <div className={styles.finishedBack}>
+              <Button size="sm" variant="ghost" onClick={handleCloseNavigation}>
+                Retour au dashboard
+              </Button>
+            </div>
           </section>
         ) : (
           <div className={styles.layout}>
@@ -559,7 +618,7 @@ export function EndOfDayScreen({
                 </section>
 
                 {/* Clôture Bonne soirée */}
-                <div className={styles.finishContainer}>
+                <div ref={finishRef} className={styles.finishContainer}>
                   <Button size="lg" variant="primary" onClick={() => void handleFinish()}>
                     Bonne soirée 🌙
                   </Button>

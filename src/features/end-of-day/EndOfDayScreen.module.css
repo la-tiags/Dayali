@@ -28,6 +28,78 @@
   opacity: 0.88;
 }
 
+/* Voile nocturne : s'assombrit au scroll (--night de 0 à 1), reste translucide pour garder la photo visible. */
+.nightVeil {
+  position: fixed;
+  z-index: 1;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 100%, rgb(2 4 12 / 45%) 0%, rgb(1 2 8 / 68%) 100%);
+  opacity: var(--night, 0);
+  pointer-events: none;
+  transition: opacity 0.25s ease-out;
+}
+
+.screenFinished .nightVeil {
+  opacity: 1;
+  transition: opacity 1.2s ease-in-out;
+}
+
+/* Étoiles filantes (écran « Bonne soirée ») */
+.stars {
+  position: fixed;
+  z-index: 1;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.star {
+  position: absolute;
+  width: 9rem;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent 0%, rgb(255 244 220 / 85%) 100%);
+  box-shadow: 0 0 8px 1px rgb(255 240 210 / 55%);
+  opacity: 0;
+  transform: rotate(32deg) translateX(0);
+  transform-origin: left center;
+  animation-name: shoot;
+  animation-iteration-count: infinite;
+  animation-timing-function: cubic-bezier(0.3, 0.1, 0.5, 1);
+}
+
+@keyframes shoot {
+  0% {
+    opacity: 0;
+    transform: rotate(32deg) translateX(0);
+  }
+
+  2% {
+    opacity: 1;
+  }
+
+  16% {
+    opacity: 0;
+    transform: rotate(32deg) translateX(55vw);
+  }
+
+  100% {
+    opacity: 0;
+    transform: rotate(32deg) translateX(55vw);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stars {
+    display: none;
+  }
+
+  .nightVeil,
+  .screenFinished .nightVeil {
+    transition: none;
+  }
+}
+
 .banners {
   position: fixed;
   z-index: 10;
@@ -372,4 +444,16 @@
 
 .finishedBox strong {
   color: #fbf6ea;
+}
+
+/* Bouton de retour discret : la journée est terminée, on ne s'attend pas à revenir au dashboard. */
+.finishedBack {
+  margin-top: var(--space-2);
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
+}
+
+.finishedBack:hover,
+.finishedBack:focus-within {
+  opacity: 1;
 }
