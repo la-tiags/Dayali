@@ -51,18 +51,6 @@
   opacity: 1;
 }
 
-.exiting {
-  pointer-events: none;
-}
-
-.exiting .background {
-  filter: blur(20px) brightness(0.3);
-  transform: scale(1.14);
-  transition:
-    filter 380ms cubic-bezier(0.16, 1, 0.3, 1),
-    transform 380ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
 .content {
   position: relative;
   z-index: 2;
@@ -79,17 +67,7 @@
   outline-offset: -4px;
 }
 
-.exiting .content {
-  opacity: 0;
-  transform: scale(1.05) translateY(-10px);
-  filter: blur(6px);
-  transition:
-    opacity 350ms cubic-bezier(0.16, 1, 0.3, 1),
-    transform 350ms cubic-bezier(0.16, 1, 0.3, 1),
-    filter 350ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.exiting .veil {
+.banners {
   position: fixed;
   z-index: 10;
   top: var(--space-4);

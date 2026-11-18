@@ -142,13 +142,8 @@ export function TodayScreen({
   const [cinematicDone, setCinematicDone] = useState(false);
   const greetingRef = useRef<HTMLHeadingElement>(null);
   const [introOffsetY, setIntroOffsetY] = useState<number | null>(null);
-  const [isExiting, setIsExiting] = useState(false);
-
   const handleOpenDashboardWithTransition = useCallback(() => {
-    setIsExiting(true);
-    setTimeout(() => {
-      onOpenDashboard();
-    }, 350);
+    onOpenDashboard();
   }, [onOpenDashboard]);
 
   useEffect(() => {
@@ -234,9 +229,7 @@ export function TodayScreen({
     : undefined;
 
   return (
-    <div
-      className={`${styles.screen} ${phase === "preview" ? styles.preview : ""} ${isExiting ? styles.exiting : ""}`.trim()}
-    >
+    <div className={`${styles.screen} ${phase === "preview" ? styles.preview : ""}`.trim()}>
       <div
         className={styles.background}
         style={backgroundStyle}
