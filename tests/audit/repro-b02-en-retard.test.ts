@@ -5,7 +5,7 @@
  * Conséquence : un rappel dû aujourd'hui à 09:00 n'est jamais « en retard »
  * à 18:00 ; et une échéance due à 23:00 est « en retard » dès 05:00.
  *
- * Ce test ÉCHOUE sur `main`.
+ * Fix : isOverdue accepte désormais `now` en 3e paramètre optionnel.
  */
 import { describe, expect, it } from "vitest";
 import type { Reminder } from "../../src/lib/contracts/types";
@@ -34,14 +34,16 @@ const base: Reminder = {
 
 describe("AUDIT B-02 — calcul « En retard »", () => {
   it("un rappel dû aujourd'hui à 09:00 est en retard à 18:00", () => {
-    // La signature actuelle n'accepte pas l'instant courant : le défaut est
-    // structurel. On documente qu'à 18:00 le rappel n'est pas marqué en retard.
+    // 2026-11-12T18:00:00+01:00 = 2026-11-12T17:00:00Z
+    // On utilise getTime() pour éviter toute dépendance au TZ du runner.
     const now = new Date("2026-11-12T18:00:00+01:00");
+    expect(now.getTime()).toBe(new Date("2026-11-12T17:00:00Z").getTime());
     const sameLogicalDay = "2026-11-12";
-    expect(now.getHours()).toBe(18);
-    // Sans l'instant courant, seul le jour logique est comparé.
+
+    // Sans l'instant courant, seul le jour logique est comparé → pas en retard.
     expect(isOverdue(base, sameLogicalDay)).toBe(false);
-    // Attendu métier avec l'instant courant : true (09:00 < 18:00).
+
+    // Avec l'instant courant (18:00 Paris > 09:00 Paris) → en retard.
     expect(isOverdue(base, sameLogicalDay, now)).toBe(true);
   });
 });
