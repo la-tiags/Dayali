@@ -17,7 +17,7 @@
 //!
 //! Aucun contenu de fichier n'apparaît dans une erreur ou dans un journal.
 
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -186,7 +186,7 @@ fn sync_parent(target: &Path) -> Result<(), DayaliError> {
     #[cfg(unix)]
     {
         let parent = target.parent().unwrap_or_else(|| Path::new("."));
-        match File::open(parent).and_then(|dir| dir.sync_all()) {
+        match fs::File::open(parent).and_then(|dir| dir.sync_all()) {
             Ok(()) => Ok(()),
             Err(error)
                 if matches!(
