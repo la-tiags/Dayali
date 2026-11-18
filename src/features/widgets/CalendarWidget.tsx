@@ -8,6 +8,7 @@ import type {
 } from "../../lib/contracts/types";
 import { getIpc } from "../../lib/ipc";
 import { calendarView } from "./viewAdapters";
+import styles from "./widgets.module.css";
 
 export interface CalendarWidgetProps {
   placement: WidgetPlacement;
@@ -81,7 +82,7 @@ export function CalendarWidget({
     )
     .sort(compareAgendaItems);
   return (
-    <div aria-busy={loading}>
+    <div className={styles.container} aria-busy={loading}>
       {adapted.kind === "incompatible" ? <p role="alert">{adapted.message}</p> : null}
       {loading ? <p aria-live="polite">Chargement de l’agenda…</p> : null}
       {error ? <p role="alert">Erreur : {error}</p> : null}
@@ -96,14 +97,23 @@ export function CalendarWidget({
         </div>
       ) : null}
       {!loading && !error && adapted.kind === "ready" && visible?.length === 0 ? (
-        <p>Aucun événement sur cette période.</p>
+        <p className={styles.empty}>Aucun événement sur cette période.</p>
       ) : null}
       {!loading && !error && visible && visible.length > 0 ? (
-        <ul>
+        <ul className={styles.list}>
           {visible.map((item) => (
-            <li key={`${item.calendarId}-${item.uid}-${JSON.stringify(item.start)}`}>
-              {item.title}
-              {"date" in item.start && item.start.date === logicalDate ? " · aujourd’hui" : ""}
+            <li
+              key={`${item.calendarId}-${item.uid}-${JSON.stringify(item.start)}`}
+              className={styles.item}
+              title={item.title}
+            >
+              <div className={styles.itemMain}>
+                <span className={styles.bullet} aria-hidden="true" />
+                <span className={styles.title}>{item.title}</span>
+              </div>
+              {"date" in item.start && item.start.date === logicalDate ? (
+                <span className={`${styles.dueBadge} ${styles.todayBadge}`}>aujourd’hui</span>
+              ) : null}
             </li>
           ))}
         </ul>

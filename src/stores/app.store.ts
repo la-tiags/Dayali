@@ -78,6 +78,7 @@ export interface AppState {
   reloadReminders: () => Promise<boolean>;
   saveReminder: (input: { reminder: Reminder; expected?: Sha256 }) => Promise<boolean>;
   deleteReminder: (id: string) => Promise<boolean>;
+  saveReminderList: (list: ReminderList) => Promise<boolean>;
 }
 
 export interface AgendaState {
@@ -922,6 +923,35 @@ export const useAppStore = create<AppState>()((set, get) => ({
           ...latest,
           status: "error",
           error: failure,
+        },
+      });
+      return false;
+    }
+  },
+
+  async saveReminderList(list: ReminderList): Promise<boolean> {
+    if (!get().vault) return false;
+    try {
+      const saved = await getIpc().reminderListSave({ list });
+      const current = get().reminders;
+      const lists = current.lists.some((l) => l.id === saved.id)
+        ? current.lists.map((l) => (l.id === saved.id ? saved : l))
+        : [...current.lists, saved];
+      set({
+        reminders: {
+          ...current,
+          lists,
+          status: "ready",
+          error: null,
+        },
+      });
+      return true;
+    } catch (error) {
+      set({
+        reminders: {
+          ...get().reminders,
+          status: "error",
+          error: normalizeIpcError(error),
         },
       });
       return false;

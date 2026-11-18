@@ -17,9 +17,19 @@ export function AppShell({ vaultName, banners, onOpenVaultChooser, children }: A
       <SkipLink />
       <aside className={styles.sidebar} aria-label="Navigation principale et vault">
         <div className={styles.topSection}>
-          <div className={styles.identity}>
-            <span className={styles.brand}>Dayali</span>
-          </div>
+          <NavLink
+            to="/today"
+            state={{ reviewHome: true }}
+            className={({ isActive }) =>
+              [styles.backHomeLink, isActive ? styles.active : ""].filter(Boolean).join(" ")
+            }
+            aria-label="Démarrage de journée"
+          >
+            <span className={styles.backArrow} aria-hidden="true">
+              ←
+            </span>
+            <span className={styles.backLabel}>Démarrage de journée</span>
+          </NavLink>
           {vaultName !== "Dayali" && (
             <div className={styles.vaultInfo}>
               <span className={styles.vaultName} title={vaultName}>
@@ -50,25 +60,6 @@ export function AppShell({ vaultName, banners, onOpenVaultChooser, children }: A
         </div>
 
         <nav className={styles.nav} aria-label="Modules Dayali">
-          <NavLink
-            to="/today"
-            state={{ reviewHome: true }}
-            className={styles.navLink ?? ""}
-            aria-label="Accueil"
-          >
-            <svg
-              className={styles.navIcon}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden="true"
-            >
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-              <polyline points="9 22 9 12 15 12 15 22" />
-            </svg>
-            <span className={styles.navText}>Accueil</span>
-          </NavLink>
           <NavLink to="/dashboard" className={styles.navLink ?? ""} aria-label="Dashboard">
             <svg
               className={styles.navIcon}

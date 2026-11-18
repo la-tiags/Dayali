@@ -517,9 +517,12 @@ export function CalendarScreen({
         {notice ?? ""}
       </p>
 
-      <section className={styles.panel} aria-labelledby="calendar-form-title">
+      <section
+        className={`${styles.panel} ${editingId ? styles.inspectorCard : ""}`}
+        aria-labelledby="calendar-form-title"
+      >
         <h2 className={styles.panelTitle} id="calendar-form-title">
-          {editingId ? "Modifier l'événement" : "Ajouter un événement"}
+          {editingId ? "Inspecteur d'événement (i) — Modifier" : "Ajouter un événement"}
         </h2>
         <form
           className={styles.createForm}
@@ -650,9 +653,38 @@ export function CalendarScreen({
       </section>
 
       <section className={styles.listSection} aria-labelledby="calendar-list-title">
-        <h2 className={styles.panelTitle} id="calendar-list-title">
-          {listTitle}
-        </h2>
+        <div className={styles.headerNavigation}>
+          <button
+            type="button"
+            className={styles.navArrowBtn}
+            onClick={handlePrev}
+            aria-label="Reculer d'une période"
+            title="Reculer"
+          >
+            ‹
+          </button>
+          <h2 className={styles.panelTitle} id="calendar-list-title">
+            {listTitle}
+          </h2>
+          <button
+            type="button"
+            className={styles.navArrowBtn}
+            onClick={handleNext}
+            aria-label="Avancer d'une période"
+            title="Avancer"
+          >
+            ›
+          </button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleToday}
+            className={styles.todayQuickBtn}
+            aria-label="Revenir au jour courant"
+          >
+            Aujourd'hui
+          </Button>
+        </div>
 
         {loading && agenda.items.length === 0 ? (
           <p className={styles.empty} role="status" aria-live="polite">
@@ -696,7 +728,20 @@ export function CalendarScreen({
                         <li className={styles.item} key={`${group.date}:${key}`}>
                           <div className={styles.itemMain}>
                             <div className={styles.itemBody}>
-                              <h4 className={styles.itemTitle}>{item.title}</h4>
+                              <div className={styles.itemHeaderLine}>
+                                <h4 className={styles.itemTitle}>{item.title}</h4>
+                                {isLocalCalendarEvent(item) ? (
+                                  <button
+                                    type="button"
+                                    className={styles.infoButton}
+                                    data-testid="calendar-info-btn"
+                                    aria-label={`Inspecter « ${item.title} »`}
+                                    onClick={() => beginEdit(item)}
+                                  >
+                                    <span aria-hidden="true">ⓘ</span>
+                                  </button>
+                                ) : null}
+                              </div>
                               <p className={styles.itemMeta}>
                                 <span className={styles.timeBadge}>
                                   {eventTimeLabel(item, locale)}

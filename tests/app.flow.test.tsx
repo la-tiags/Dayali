@@ -108,8 +108,8 @@ describe("parcours complet de l'étape (a)", () => {
     await user.click(screen.getByRole("button", { name: "Ouvrir le dashboard" }));
     expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
 
-    // 7. Retourner à l'accueil via la sidebar (le lien « Accueil ») ne redémarre pas la journée.
-    await user.click(screen.getByRole("link", { name: "Accueil" }));
+    // 7. Retourner à l'accueil via la sidebar (le lien « Démarrage de journée ») ne redémarre pas la journée.
+    await user.click(screen.getByRole("link", { name: "Démarrage de journée" }));
     expect(await screen.findByRole("button", { name: "Voir ma journée" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Démarrer la journée" })).not.toBeInTheDocument();
     expect(useAppStore.getState().dayState?.started).toBe(true);
@@ -315,7 +315,7 @@ describe("parcours complet de l'étape (a)", () => {
     expect(await screen.findByText("Événement créé.")).toBeInTheDocument();
     expect(screen.getAllByText("Déjeuner d'équipe").length).toBeGreaterThan(0);
 
-    await user.click(screen.getByRole("link", { name: "Accueil" }));
+    await user.click(screen.getByRole("link", { name: "Démarrage de journée" }));
     await user.click(await screen.findByRole("button", { name: "Démarrer la journée" }));
 
     const agendaSection = await screen.findByRole("region", { name: "Agenda du jour" });

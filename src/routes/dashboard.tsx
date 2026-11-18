@@ -47,36 +47,39 @@ export function DashboardRoute() {
     [patchConfig],
   );
 
-  const handleAddWidget = useCallback(async () => {
-    if (!config) return;
-    const module = "reminders" as const;
-    let views: SavedView[] = [...config.views];
-    let view = views.find((v) => v.module === module);
-    if (!view) {
-      const nowIso = new Date().toISOString();
-      view = {
+  const handleAddWidget = useCallback(
+    async (module: "reminders" | "agenda" = "reminders") => {
+      if (!config) return;
+      let views: SavedView[] = [...config.views];
+      let view = views.find((v) => v.module === module);
+      if (!view) {
+        const nowIso = new Date().toISOString();
+        view = {
+          id: crypto.randomUUID(),
+          module,
+          name: module === "agenda" ? "Agenda" : "Rappels",
+          origin: "widget",
+          filter:
+            module === "agenda" ? { rangeDays: 7, includeAllDay: true } : { statuses: ["open"] },
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        };
+        views = [...views, view];
+      }
+      const widget: WidgetPlacement = {
         id: crypto.randomUUID(),
         module,
-        name: "Nouvelle vue",
-        origin: "widget",
-        filter: {},
-        createdAt: nowIso,
-        updatedAt: nowIso,
+        viewId: view.id,
+        title: module === "agenda" ? "Agenda" : "Rappels",
+        layout: { x: 0, y: 0, w: module === "agenda" ? 6 : 4, h: 4 },
+        enabled: true,
       };
-      views = [...views, view];
-    }
-    const widget: WidgetPlacement = {
-      id: crypto.randomUUID(),
-      module,
-      viewId: view.id,
-      title: "Nouveau widget",
-      layout: { x: 0, y: 0, w: 4, h: 4 },
-      enabled: true,
-    };
-    const widgets = [...config.dashboard.widgets, widget];
-    await patchConfig({ views, dashboard: { widgets } });
-    await reloadConfig();
-  }, [config, patchConfig, reloadConfig]);
+      const widgets = [...config.dashboard.widgets, widget];
+      await patchConfig({ views, dashboard: { widgets } });
+      await reloadConfig();
+    },
+    [config, patchConfig, reloadConfig],
+  );
 
   const handleRemoveWidget = useCallback(
     async (id: string) => {
@@ -175,7 +178,7 @@ export function DashboardRoute() {
         onOpenVaultChooser={() => void openVaultChooser()}
         busy={busy}
         onOpenDashboardOnLaunchChange={handleOpenDashboardOnLaunchChange}
-        onAddWidget={() => void handleAddWidget()}
+        onAddWidget={(module) => void handleAddWidget(module)}
         onRemoveWidget={(id) => void handleRemoveWidget(id)}
         onToggleWidget={(id) => void handleToggleWidget(id)}
         onMoveWidget={(id, dir) => void handleMoveWidget(id, dir)}

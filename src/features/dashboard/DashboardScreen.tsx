@@ -14,7 +14,7 @@ export interface DashboardScreenProps {
   onOpenVaultChooser: () => void;
   busy?: boolean;
   onOpenDashboardOnLaunchChange?: (value: boolean) => void;
-  onAddWidget?: () => void;
+  onAddWidget?: (module?: "reminders" | "agenda") => void;
   onRemoveWidget?: (id: string) => void;
   onToggleWidget?: (id: string) => void;
   onMoveWidget?: (id: string, direction: "up" | "down" | "left" | "right") => void;
@@ -82,9 +82,14 @@ export function DashboardScreen({
             Fin de journée
           </Button>
           {onAddWidget ? (
-            <Button variant="primary" onClick={onAddWidget}>
-              Ajouter un widget
-            </Button>
+            <>
+              <Button variant="primary" onClick={() => onAddWidget("reminders")}>
+                + Widget Rappels
+              </Button>
+              <Button variant="secondary" onClick={() => onAddWidget("agenda")}>
+                + Widget Agenda
+              </Button>
+            </>
           ) : null}
         </div>
       </section>
@@ -110,9 +115,14 @@ export function DashboardScreen({
             Fin de journée
           </Button>
           {onAddWidget && isEditing ? (
-            <Button variant="primary" onClick={onAddWidget}>
-              Ajouter un widget
-            </Button>
+            <>
+              <Button variant="primary" onClick={() => onAddWidget("reminders")}>
+                + Widget Rappels
+              </Button>
+              <Button variant="secondary" onClick={() => onAddWidget("agenda")}>
+                + Widget Agenda
+              </Button>
+            </>
           ) : null}
         </div>
       </header>

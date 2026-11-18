@@ -70,6 +70,7 @@ export function RemindersScreen({
   const reloadReminders = useAppStore((state) => state.reloadReminders);
   const saveReminder = useAppStore((state) => state.saveReminder);
   const deleteReminder = useAppStore((state) => state.deleteReminder);
+  const saveReminderList = useAppStore((state) => state.saveReminderList);
 
   const clock = useClock(30_000);
   const now = injectedNow ?? clock;
@@ -89,6 +90,9 @@ export function RemindersScreen({
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [reloading, setReloading] = useState(false);
+  const [selectedListId, setSelectedListId] = useState<string | null>(null);
+  const [isCreatingList, setIsCreatingList] = useState(false);
+  const [newListName, setNewListName] = useState("");
 
   // Panneau avancé (i)
   const [inspectingReminder, setInspectingReminder] = useState<Reminder | null>(null);
@@ -114,18 +118,35 @@ export function RemindersScreen({
     [reminders.items, logicalDate],
   );
 
-  const openItems = useMemo(
-    () => orderedItems.filter((item) => item.status === "open"),
-    [orderedItems],
-  );
-  const completedItems = useMemo(
-    () =>
-      orderedItems.filter(
-        (item) =>
-          item.status === "done" || item.status === "cancelled" || item.status === "abandoned",
-      ),
-    [orderedItems],
-  );
+  const view: "today" | "all" =
+    activeFilter === null ? "today" : activeFilter.dueWithinDays === 0 ? "today" : "all";
+
+  const openItems = useMemo(() => {
+    const listFiltered = selectedListId
+      ? orderedItems.filter((item) => item.listId === selectedListId)
+      : orderedItems;
+    const baseOpen = listFiltered.filter((item) => item.status === "open");
+    if (view === "all" && !selectedListId) {
+      return [...baseOpen].sort((a, b) => {
+        const aIsToday = a.dueDate === logicalDate || isOverdue(a, logicalDate);
+        const bIsToday = b.dueDate === logicalDate || isOverdue(b, logicalDate);
+        if (aIsToday && !bIsToday) return -1;
+        if (!aIsToday && bIsToday) return 1;
+        return 0;
+      });
+    }
+    return baseOpen;
+  }, [orderedItems, selectedListId, view, logicalDate]);
+
+  const completedItems = useMemo(() => {
+    const listFiltered = selectedListId
+      ? orderedItems.filter((item) => item.listId === selectedListId)
+      : orderedItems;
+    return listFiltered.filter(
+      (item) =>
+        item.status === "done" || item.status === "cancelled" || item.status === "abandoned",
+    );
+  }, [orderedItems, selectedListId]);
 
   // Premier chargement : « Ma journée »
   useEffect(() => {
@@ -134,8 +155,6 @@ export function RemindersScreen({
     void loadReminders(filterForMaJournee());
   }, [vault, reminders.status, loadReminders]);
 
-  const view: "today" | "all" =
-    activeFilter === null ? "today" : activeFilter.dueWithinDays === 0 ? "today" : "all";
   const loading = reminders.status === "loading" || reminders.status === "idle";
   const error = reminders.error;
   const conflictLike = error?.code === "E_PRECONDITION_FAILED" || error?.code === "E_CONFLICT";
@@ -164,7 +183,8 @@ export function RemindersScreen({
       setFormError("Le titre du rappel est obligatoire.");
       return;
     }
-    if (!resolvedListId) {
+    const targetListId = selectedListId ?? resolvedListId;
+    if (!targetListId) {
       setFormError("Aucune liste de rappels n'est disponible dans ce vault.");
       return;
     }
@@ -178,7 +198,7 @@ export function RemindersScreen({
     const reminder: Reminder = {
       schemaVersion: 1,
       id: "",
-      listId: resolvedListId,
+      listId: targetListId,
       title: cleanTitle,
       notes: null,
       status: "open",
@@ -199,6 +219,32 @@ export function RemindersScreen({
     if (saved) {
       setQuickTitle("");
       setNotice("Rappel créé.");
+    }
+  };
+
+  const handleCreateList = async (event: FormEvent) => {
+    event.preventDefault();
+    const clean = newListName.trim();
+    if (!clean) return;
+    if (!vault) return;
+    const instant = now.toISOString();
+    const newList: ReminderList = {
+      schemaVersion: 1,
+      id: crypto.randomUUID(),
+      name: clean,
+      color: null,
+      order: lists.length,
+      archived: false,
+      createdAt: instant,
+      updatedAt: instant,
+      machineId: vault.machineId,
+    };
+    const saved = await saveReminderList(newList);
+    if (saved) {
+      setSelectedListId(newList.id);
+      setNewListName("");
+      setIsCreatingList(false);
+      setNotice(`Liste « ${clean} » créée.`);
     }
   };
 
@@ -283,22 +329,75 @@ export function RemindersScreen({
           <legend className={styles.viewSwitchLegend}>Filtre des rappels</legend>
           <Button
             size="sm"
-            variant={view === "today" ? "primary" : "secondary"}
-            aria-pressed={view === "today"}
-            onClick={() => void changeView("today")}
+            variant={view === "today" && selectedListId === null ? "primary" : "secondary"}
+            aria-pressed={view === "today" && selectedListId === null}
+            onClick={() => {
+              setSelectedListId(null);
+              void changeView("today");
+            }}
             disabled={loading}
           >
             Ma journée
           </Button>
           <Button
             size="sm"
-            variant={view === "all" ? "primary" : "secondary"}
-            aria-pressed={view === "all"}
-            onClick={() => void changeView("all")}
+            variant={view === "all" && selectedListId === null ? "primary" : "secondary"}
+            aria-pressed={view === "all" && selectedListId === null}
+            onClick={() => {
+              setSelectedListId(null);
+              void changeView("all");
+            }}
             disabled={loading}
           >
             Tous
           </Button>
+          {availableLists.map((l) => (
+            <Button
+              key={l.id}
+              size="sm"
+              variant={selectedListId === l.id ? "primary" : "secondary"}
+              aria-pressed={selectedListId === l.id}
+              onClick={() => {
+                setSelectedListId(l.id);
+                if (view !== "all") void changeView("all");
+              }}
+              disabled={loading}
+            >
+              {l.name}
+            </Button>
+          ))}
+          {isCreatingList ? (
+            <form className={styles.createListInline} onSubmit={(e) => void handleCreateList(e)}>
+              <input
+                type="text"
+                className={styles.listInput}
+                placeholder="Nom..."
+                value={newListName}
+                onChange={(e) => setNewListName(e.target.value)}
+              />
+              <Button size="sm" variant="primary" type="submit">
+                OK
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                type="button"
+                onClick={() => setIsCreatingList(false)}
+              >
+                ✕
+              </Button>
+            </form>
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setIsCreatingList(true)}
+              disabled={loading}
+              title="Créer une nouvelle liste"
+            >
+              + Liste
+            </Button>
+          )}
         </fieldset>
       </header>
 
@@ -358,7 +457,11 @@ export function RemindersScreen({
 
       <section className={styles.listSection} aria-labelledby="reminders-list-title">
         <h2 className={styles.panelTitle} id="reminders-list-title">
-          {view === "today" ? "Ma journée" : "Tous les rappels"}
+          {selectedListId
+            ? (listNames.get(selectedListId) ?? "Liste")
+            : view === "today"
+              ? "Ma journée"
+              : "Tous les rappels"}
         </h2>
 
         {loading ? (
@@ -417,15 +520,20 @@ export function RemindersScreen({
                           </button>
                         </div>
                         <p className={styles.itemMeta}>
-                          <span className={styles.statusBadge}>
-                            {STATUS_LABEL[reminder.status]}
-                          </span>
+                          {reminder.status !== "open" ? (
+                            <span className={styles.statusBadge}>
+                              {STATUS_LABEL[reminder.status]}
+                            </span>
+                          ) : null}
                           <span className={styles.listName}>{listName}</span>
-                          <span>{due ? `Échéance : ${due}` : "Sans échéance"}</span>
+                          {due ? <span>Échéance : {due}</span> : null}
                           {priority ? (
                             <span className={styles.priorityBadge}>{PRIORITY_LABEL[priority]}</span>
                           ) : null}
                           {overdue ? <span className={styles.overdue}>En retard</span> : null}
+                          {view === "all" && reminder.dueDate === logicalDate ? (
+                            <span className={styles.todayBadge}>Aujourd'hui</span>
+                          ) : null}
                         </p>
                         {reminder.notes ? <p className={styles.notes}>{reminder.notes}</p> : null}
                       </div>
@@ -449,7 +557,6 @@ export function RemindersScreen({
                             <Button
                               size="sm"
                               variant="secondary"
-                              autoFocus
                               disabled={deletingId === reminder.id}
                               onClick={() => void remove(reminder.id)}
                             >
@@ -533,7 +640,7 @@ export function RemindersScreen({
                                   {STATUS_LABEL[reminder.status]}
                                 </span>
                                 <span className={styles.listName}>{listName}</span>
-                                <span>{due ? `Échéance : ${due}` : "Sans échéance"}</span>
+                                {due ? <span>Échéance : {due}</span> : null}
                               </p>
                               {reminder.notes ? (
                                 <p className={styles.notes}>{reminder.notes}</p>
@@ -559,7 +666,6 @@ export function RemindersScreen({
                                   <Button
                                     size="sm"
                                     variant="secondary"
-                                    autoFocus
                                     disabled={deletingId === reminder.id}
                                     onClick={() => void remove(reminder.id)}
                                   >

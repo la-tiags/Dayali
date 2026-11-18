@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { useNavigate } from "react-router";
+import { photoOfTheDay } from "../../assets/home/photos";
 import { Button } from "../../components/ui/Button";
 import { StatusBanners } from "../../components/ui/StatusBanners";
 import { addDays } from "../../lib/agenda";
@@ -11,7 +12,7 @@ import {
   saveEndOfDayDraft,
 } from "../../lib/contracts/end-of-day-draft";
 import type { CalendarListResult, LocalDate, Reminder } from "../../lib/contracts/types";
-import { formatLocalDate, logicalDay } from "../../lib/day";
+import { dayOfYear, formatLocalDate, logicalDay } from "../../lib/day";
 import { getIpc } from "../../lib/ipc";
 import { normalizeIpcError, userMessage } from "../../lib/ipc/errors";
 import { formatLocalDateLong, resolveTimeZone, systemTimeZone } from "../../lib/time";
@@ -53,6 +54,10 @@ export function EndOfDayScreen({
     (config && dayState
       ? logicalDay(effectiveNow, config.dayStartHour, timeZone)
       : formatLocalDate(effectiveNow, timeZone));
+
+  const daySeed = dayOfYear(effectiveNow, timeZone);
+  const bundledPhoto = photoOfTheDay(daySeed);
+  const backgroundStyle = { backgroundImage: `url(${JSON.stringify(bundledPhoto.src)})` };
 
   const vaultRoot = vault?.root ?? "default-vault";
   const tomorrow = addDays(logicalDate, 1);
@@ -286,7 +291,7 @@ export function EndOfDayScreen({
 
   return (
     <div className={styles.screen}>
-      <div className={styles.background} aria-hidden="true" />
+      <div className={styles.background} aria-hidden="true" style={backgroundStyle} />
       <div className={styles.veil} aria-hidden="true" />
 
       {banners ? <div className={styles.banners}>{banners}</div> : null}

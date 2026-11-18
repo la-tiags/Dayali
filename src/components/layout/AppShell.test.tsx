@@ -25,12 +25,11 @@ describe("AppShell (Sidebar)", () => {
   it("affiche la sidebar avec le nom du vault et les liens de navigation (Dashboard, Agenda, Rappels, Accueil, Réglages)", () => {
     renderAppShell();
 
-    expect(screen.getByText("Dayali")).toBeInTheDocument();
     expect(screen.getByText("Mon Super Vault")).toBeInTheDocument();
     expect(screen.getByTestId("child-content")).toBeInTheDocument();
 
     // Liens de navigation
-    expect(screen.getByRole("link", { name: /accueil/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /démarrage de journée/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /dashboard/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /agenda/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /rappels/i })).toBeInTheDocument();

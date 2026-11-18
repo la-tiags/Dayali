@@ -7,6 +7,7 @@ import type {
 } from "../../lib/contracts/types";
 import { getIpc } from "../../lib/ipc";
 import { remindersView } from "./viewAdapters";
+import styles from "./widgets.module.css";
 
 export interface ReminderWidgetProps {
   placement: WidgetPlacement;
@@ -77,20 +78,27 @@ export function ReminderWidget({
   }, [filterKey, injectedItems, injectedError]);
 
   return (
-    <div aria-busy={loading}>
+    <div className={styles.container} aria-busy={loading}>
       {adapted.kind === "incompatible" ? <p role="alert">{adapted.message}</p> : null}
       {loading ? <p aria-live="polite">Chargement des rappels…</p> : null}
       {error ? <p role="alert">Erreur : {error}</p> : null}
       {warning ? <p role="status">Avertissement : {warning}</p> : null}
       {!loading && !error && adapted.kind === "ready" && items?.length === 0 ? (
-        <p>Aucun rappel pour cette vue.</p>
+        <p className={styles.empty}>Aucun rappel pour cette vue.</p>
       ) : null}
       {!loading && !error && items && items.length > 0 ? (
-        <ul>
+        <ul className={styles.list}>
           {items.map((item) => (
-            <li key={item.id}>
-              {item.title}
-              {item.dueDate === logicalDate ? " · aujourd’hui" : ""}
+            <li key={item.id} className={styles.item} title={item.title}>
+              <div className={styles.itemMain}>
+                <span className={styles.bullet} aria-hidden="true" />
+                <span className={styles.title}>{item.title}</span>
+              </div>
+              {item.dueDate === logicalDate ? (
+                <span className={`${styles.dueBadge} ${styles.todayBadge}`}>aujourd’hui</span>
+              ) : item.dueDate ? (
+                <span className={styles.dueBadge}>{item.dueDate}</span>
+              ) : null}
             </li>
           ))}
         </ul>
