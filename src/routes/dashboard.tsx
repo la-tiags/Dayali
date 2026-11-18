@@ -4,6 +4,7 @@ import { AppShell } from "../components/layout/AppShell";
 import { StatusBanners } from "../components/ui/StatusBanners";
 import { DashboardScreen } from "../features/dashboard/DashboardScreen";
 import type { SavedView, WidgetPlacement } from "../lib/contracts/types";
+import { applyMove, applyResize, findFreeSlot, healLayout } from "../lib/dashboardLayout";
 import { isDayStarted, logicalDay } from "../lib/day";
 import { resolveTimeZone, systemTimeZone } from "../lib/time";
 import { useClock } from "../lib/useClock";
@@ -66,15 +67,24 @@ export function DashboardRoute() {
         };
         views = [...views, view];
       }
+      // On répare d'abord une éventuelle disposition qui se chevauche, puis on place le
+      // nouveau widget dans le premier emplacement libre de la grille.
+      const existing = healLayout(config.dashboard.widgets);
+      const size = { w: module === "agenda" ? 6 : 4, h: 6 };
+      const slot = findFreeSlot(
+        existing.map((candidate) => candidate.layout),
+        size.w,
+        size.h,
+      );
       const widget: WidgetPlacement = {
         id: crypto.randomUUID(),
         module,
         viewId: view.id,
         title: module === "agenda" ? "Agenda" : "Rappels",
-        layout: { x: 0, y: 0, w: module === "agenda" ? 6 : 4, h: 4 },
+        layout: { ...slot, ...size },
         enabled: true,
       };
-      const widgets = [...config.dashboard.widgets, widget];
+      const widgets = [...existing, widget];
       await patchConfig({ views, dashboard: { widgets } });
       await reloadConfig();
     },
@@ -104,19 +114,7 @@ export function DashboardRoute() {
   const handleMoveWidget = useCallback(
     async (id: string, direction: "up" | "down" | "left" | "right") => {
       if (!config) return;
-      const widgets = config.dashboard.widgets.map((w) => {
-        if (w.id !== id) return w;
-        const delta =
-          direction === "up"
-            ? { x: w.layout.x, y: Math.max(0, w.layout.y - 1) }
-            : direction === "down"
-              ? { x: w.layout.x, y: w.layout.y + 1 }
-              : direction === "left"
-                ? { x: Math.max(0, w.layout.x - 1), y: w.layout.y }
-                : { x: w.layout.x + 1, y: w.layout.y };
-        return { ...w, layout: { ...w.layout, ...delta } };
-      });
-      await persistWidgets(widgets);
+      await persistWidgets(applyMove(config.dashboard.widgets, id, direction));
       await reloadConfig();
     },
     [config, persistWidgets, reloadConfig],
@@ -125,12 +123,7 @@ export function DashboardRoute() {
   const handleResizeWidget = useCallback(
     async (id: string, w: number, h: number) => {
       if (!config) return;
-      const widgets = config.dashboard.widgets.map((widget) =>
-        widget.id === id
-          ? { ...widget, layout: { ...widget.layout, w: Math.max(2, w), h: Math.max(2, h) } }
-          : widget,
-      );
-      await persistWidgets(widgets);
+      await persistWidgets(applyResize(config.dashboard.widgets, id, w, h));
       await reloadConfig();
     },
     [config, persistWidgets, reloadConfig],
@@ -182,7 +175,7 @@ export function DashboardRoute() {
         onRemoveWidget={(id) => void handleRemoveWidget(id)}
         onToggleWidget={(id) => void handleToggleWidget(id)}
         onMoveWidget={(id, dir) => void handleMoveWidget(id, dir)}
-        onResizeWidget={(id, w, h) => void handleResizeWidget(id, w, h)}
+        onResizeWidget={(id, w, h) => handleResizeWidget(id, w, h)}
       />
     </AppShell>
   );

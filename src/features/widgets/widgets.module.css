@@ -90,3 +90,78 @@
   font-size: 0.875rem;
   margin: var(--space-2) 0;
 }
+
+/* Widget Rappels : groupes « Aujourd'hui » / « Plus tard », case à cocher, badges. */
+.scroll {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.groupLabel {
+  margin: 0;
+  padding: 0 var(--space-2);
+  color: var(--color-text-faint);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.groupList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.checkbox {
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+.titleDone {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
+
+/* Le reste (rien pour aujourd'hui) passe au second plan. */
+.groupLater .title {
+  color: var(--color-text-muted);
+}
+
+.listBadge {
+  max-width: 6rem;
+  flex-shrink: 0;
+  overflow: hidden;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-faint);
+  font-size: 0.6875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overdueBadge {
+  border-color: var(--color-danger-border);
+  background-color: var(--color-danger-bg);
+  color: var(--color-danger);
+  font-weight: 600;
+}

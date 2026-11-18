@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useId, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { photoOfTheDay } from "../../assets/home/photos";
 import { Button } from "../../components/ui/Button";
@@ -27,16 +27,54 @@ export interface EndOfDayScreenProps {
   logicalDate?: LocalDate;
 }
 
-/** Étoiles filantes : positions de départ (%), délai et durée du cycle (s) fixes pour un rendu stable. */
+/**
+ * Étoiles filantes : position de départ (%), délai et cycle (s), longueur de traînée (px),
+ * angle (deg ; > 90 = vers la gauche) et distance parcourue (vw). Le passage visible ne dure
+ * qu'environ 8 % du cycle, soit une demi-seconde à une seconde, comme une vraie météorite.
+ */
 const SHOOTING_STARS = [
-  { top: 6, left: 55, delay: 0.1, duration: 5.5 },
-  { top: 18, left: 12, delay: 0.7, duration: 6.5 },
-  { top: 4, left: 28, delay: 1.4, duration: 7 },
-  { top: 30, left: 70, delay: 2.1, duration: 6 },
-  { top: 12, left: 82, delay: 3.2, duration: 8 },
-  { top: 38, left: 35, delay: 4.3, duration: 7.5 },
-  { top: 24, left: 48, delay: 5.4, duration: 9 },
+  { top: 5, left: 58, delay: 0.2, cycle: 7, length: 190, angle: 28, dist: 48 },
+  { top: 14, left: 16, delay: 1.1, cycle: 9, length: 140, angle: 36, dist: 40 },
+  { top: 4, left: 90, delay: 2.4, cycle: 11, length: 230, angle: 148, dist: 52 },
+  { top: 22, left: 72, delay: 3.6, cycle: 8, length: 120, angle: 142, dist: 34 },
+  { top: 9, left: 36, delay: 5, cycle: 12, length: 170, angle: 24, dist: 44 },
+  { top: 27, left: 44, delay: 6.3, cycle: 10, length: 110, angle: 32, dist: 30 },
 ] as const;
+
+/** Générateur pseudo-aléatoire à graine fixe : le ciel est identique à chaque rendu. */
+function seededRandom(seed: number): () => number {
+  let state = seed;
+  return () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const STAR_TONES = ["#ffffff", "#fff3d6", "#d6e4ff", "#ffe8cf"] as const;
+
+/** Étoiles fixes : plus denses en haut, tailles variées, scintillement propre à chacune. */
+const STARFIELD = (() => {
+  const rand = seededRandom(20_261_118);
+  return Array.from({ length: 130 }, () => {
+    const top = rand() ** 1.7 * 94;
+    const left = rand() * 100;
+    const size = 1 + rand() ** 3 * 2.8;
+    return {
+      key: `${top.toFixed(2)}-${left.toFixed(2)}`,
+      top,
+      left,
+      size,
+      glow: size > 2.4,
+      color: STAR_TONES[Math.floor(rand() * STAR_TONES.length)] ?? "#ffffff",
+      min: 0.06 + rand() * 0.22,
+      max: 0.55 + rand() * 0.45,
+      duration: 2.2 + rand() * 4.8,
+      delay: -rand() * 7,
+    };
+  });
+})();
 
 export function EndOfDayScreen({
   now: injectedNow,
@@ -334,18 +372,46 @@ export function EndOfDayScreen({
       <div className={styles.background} aria-hidden="true" style={backgroundStyle} />
       <div className={styles.veil} aria-hidden="true" />
       <div className={styles.nightVeil} aria-hidden="true" />
+      <div className={styles.starfield} aria-hidden="true">
+        {STARFIELD.map((star) => (
+          <span
+            key={star.key}
+            className={[styles.starDot, star.glow ? styles.starDotGlow : ""]
+              .filter(Boolean)
+              .join(" ")}
+            style={
+              {
+                top: `${star.top}%`,
+                left: `${star.left}%`,
+                width: `${star.size}px`,
+                height: `${star.size}px`,
+                backgroundColor: star.color,
+                animationDuration: `${star.duration}s`,
+                animationDelay: `${star.delay}s`,
+                "--tw-min": star.min,
+                "--tw-max": star.max,
+              } as CSSProperties
+            }
+          />
+        ))}
+      </div>
       {isFinished ? (
         <div className={styles.stars} aria-hidden="true">
           {SHOOTING_STARS.map((star) => (
             <span
               key={`${star.top}-${star.left}`}
               className={styles.star}
-              style={{
-                top: `${star.top}%`,
-                left: `${star.left}%`,
-                animationDelay: `${star.delay}s`,
-                animationDuration: `${star.duration}s`,
-              }}
+              style={
+                {
+                  top: `${star.top}%`,
+                  left: `${star.left}%`,
+                  animationDelay: `${star.delay}s`,
+                  animationDuration: `${star.cycle}s`,
+                  "--len": `${star.length}px`,
+                  "--angle": `${star.angle}deg`,
+                  "--dist": `${star.dist}vw`,
+                } as CSSProperties
+              }
             />
           ))}
         </div>

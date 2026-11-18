@@ -5,7 +5,6 @@ import type { Reminder, ReminderList } from "../../lib/contracts/types";
 import { configureIpc, resetIpc } from "../../lib/ipc";
 import { IpcError } from "../../lib/ipc/errors";
 import { createMockIpc, MOCK_MACHINE_ID } from "../../lib/ipc/mock";
-import { filterForMaJournee } from "../../lib/reminders";
 import { resetAppStore, useAppStore } from "../../stores/app.store";
 import { RemindersScreen } from "./RemindersScreen";
 
@@ -88,7 +87,7 @@ async function seed(options: SeedOptions = {}) {
       status: options.status ?? "ready",
       error: options.error ?? null,
     },
-    remindersFilter: filterForMaJournee(),
+    remindersFilter: {},
   });
   return ipc;
 }
@@ -140,7 +139,7 @@ describe("RemindersScreen", () => {
     renderScreen();
 
     expect(screen.getByText("0 rappel(s) affiché(s)")).toBeInTheDocument();
-    expect(screen.getByText("Aucun rappel ouvert à traiter aujourd'hui.")).toBeInTheDocument();
+    expect(screen.getByText("Aucun rappel dans ce vault pour le moment.")).toBeInTheDocument();
     expect(screen.queryByRole("listitem")).not.toBeInTheDocument();
   });
 

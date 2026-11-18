@@ -1,7 +1,16 @@
-import { type CSSProperties, useState } from "react";
+import {
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate } from "react-router";
 import { Button } from "../../components/ui/Button";
 import type { Config, WidgetPlacement } from "../../lib/contracts/types";
+import { GRID_COLUMNS, healLayout, resizeLayout, resolveLayout } from "../../lib/dashboardLayout";
 import { CalendarWidget } from "../widgets/CalendarWidget";
 import { ReminderWidget } from "../widgets/ReminderWidget";
 import styles from "./DashboardScreen.module.css";
@@ -18,7 +27,7 @@ export interface DashboardScreenProps {
   onRemoveWidget?: (id: string) => void;
   onToggleWidget?: (id: string) => void;
   onMoveWidget?: (id: string, direction: "up" | "down" | "left" | "right") => void;
-  onResizeWidget?: (id: string, w: number, h: number) => void;
+  onResizeWidget?: (id: string, w: number, h: number) => void | Promise<void>;
 }
 
 const MODULE_LABEL: Record<WidgetPlacement["module"], string> = {
@@ -26,6 +35,15 @@ const MODULE_LABEL: Record<WidgetPlacement["module"], string> = {
   reminders: "Rappels",
   journal: "Journal",
   projects: "Projets",
+};
+
+const GRID_COLUMN_KEYS = Array.from({ length: GRID_COLUMNS }, (_, index) => `col-${index + 1}`);
+
+const RESIZE_KEYS: Record<string, readonly [number, number]> = {
+  ArrowRight: [1, 0],
+  ArrowLeft: [-1, 0],
+  ArrowDown: [0, 1],
+  ArrowUp: [0, -1],
 };
 
 export function DashboardScreen({
@@ -40,12 +58,98 @@ export function DashboardScreen({
   onResizeWidget,
 }: DashboardScreenProps) {
   const navigate = useNavigate();
-  const widgets = config.dashboard.widgets;
   const rowHeight = config.dashboard.rowHeight;
+  const gridRef = useRef<HTMLDivElement>(null);
+  // Aperçu pendant un redimensionnement : la taille proposée n'est enregistrée qu'au relâchement.
+  const [preview, setPreview] = useState<{ id: string; w: number; h: number } | null>(null);
+
+  // Disposition affichée : une config qui se chevauche est réparée à l'affichage, et pendant
+  // un redimensionnement les voisins gênés sont repoussés vers le bas en direct.
+  const widgets = useMemo(() => {
+    const healed = healLayout(config.dashboard.widgets);
+    if (!preview) return healed;
+    return resolveLayout(
+      healed.map((widget) =>
+        widget.id === preview.id
+          ? { ...widget, layout: resizeLayout(widget.layout, preview.w, preview.h) }
+          : widget,
+      ),
+      preview.id,
+    );
+  }, [config.dashboard.widgets, preview]);
+
+  const commitResize = useCallback(
+    (id: string, w: number, h: number) => {
+      if (!onResizeWidget) return;
+      const clear = () => setPreview(null);
+      setPreview({ id, w, h });
+      void Promise.resolve(onResizeWidget(id, w, h)).then(clear, clear);
+    },
+    [onResizeWidget],
+  );
 
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const showBanner = started === false && !bannerDismissed;
+
+  /** Glisser la poignée : 1 colonne = 1 cran en largeur, 1 ligne (`rowHeight`) = 1 cran en hauteur. */
+  const startResize = (event: ReactPointerEvent<HTMLButtonElement>, widget: WidgetPlacement) => {
+    const grid = gridRef.current;
+    if (!grid || !onResizeWidget || event.button !== 0) return;
+    event.preventDefault();
+    const computed = window.getComputedStyle(grid);
+    const gapX = Number.parseFloat(computed.columnGap) || 0;
+    const gapY = Number.parseFloat(computed.rowGap) || 0;
+    const stepX = (grid.clientWidth - gapX * (GRID_COLUMNS - 1)) / GRID_COLUMNS + gapX;
+    const stepY = rowHeight + gapY;
+    const { w: startW, h: startH } = widget.layout;
+    const originX = event.clientX;
+    const originY = event.clientY;
+    let current = { w: startW, h: startH };
+
+    const onMove = (move: PointerEvent) => {
+      const next = resizeLayout(
+        widget.layout,
+        startW + Math.round((move.clientX - originX) / stepX),
+        startH + Math.round((move.clientY - originY) / stepY),
+      );
+      if (next.w !== current.w || next.h !== current.h) {
+        current = { w: next.w, h: next.h };
+        setPreview({ id: widget.id, ...current });
+      }
+    };
+    const stop = (commit: boolean) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      if (commit && (current.w !== startW || current.h !== startH)) {
+        commitResize(widget.id, current.w, current.h);
+      } else {
+        setPreview(null);
+      }
+    };
+    const onUp = () => stop(true);
+    const onCancel = () => stop(false);
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+  };
+
+  /** Même poignée au clavier : les flèches agrandissent ou réduisent d'un cran. */
+  const resizeWithKeyboard = (event: KeyboardEvent<HTMLButtonElement>, widget: WidgetPlacement) => {
+    const delta = RESIZE_KEYS[event.key];
+    if (!delta || !onResizeWidget) return;
+    event.preventDefault();
+    const next = resizeLayout(
+      widget.layout,
+      widget.layout.w + delta[0],
+      widget.layout.h + delta[1],
+    );
+    if (next.w !== widget.layout.w || next.h !== widget.layout.h) {
+      commitResize(widget.id, next.w, next.h);
+    }
+  };
 
   const invitationBanner = showBanner ? (
     <div className={styles.invitationBanner}>
@@ -129,13 +233,24 @@ export function DashboardScreen({
 
       {invitationBanner}
 
-      <div className={styles.grid} style={{ gridAutoRows: `${rowHeight}px` }}>
+      <div
+        ref={gridRef}
+        className={`${styles.grid} ${isEditing ? styles.gridEditing : ""}`}
+        style={{ "--row-height": `${rowHeight}px` } as CSSProperties}
+      >
+        {isEditing ? (
+          <div className={styles.gridGuides} aria-hidden="true">
+            {GRID_COLUMN_KEYS.map((key) => (
+              <span key={key} className={styles.gridGuide} />
+            ))}
+          </div>
+        ) : null}
         {widgets.map((widget) => {
           const view = config.views.find((candidate) => candidate.id === widget.viewId);
           return (
             <section
               key={widget.id}
-              className={`${styles.card} ${widget.enabled ? "" : styles.cardDisabled} ${isEditing ? styles.cardEditing : ""}`}
+              className={`${styles.card} ${widget.enabled ? "" : styles.cardDisabled} ${isEditing ? styles.cardEditing : ""} ${preview?.id === widget.id ? styles.cardResizing : ""}`}
               aria-labelledby={`${widget.id}-title`}
               style={
                 {
@@ -175,6 +290,24 @@ export function DashboardScreen({
                 </div>
               ) : null}
 
+              {isEditing && onResizeWidget ? (
+                <>
+                  {preview?.id === widget.id ? (
+                    <span className={styles.sizeBadge} aria-hidden="true">
+                      {widget.layout.w} × {widget.layout.h}
+                    </span>
+                  ) : null}
+                  <button
+                    type="button"
+                    className={styles.resizeHandle}
+                    aria-label={`Redimensionner ${widget.title ?? MODULE_LABEL[widget.module]}`}
+                    title="Glisser pour redimensionner (ou flèches du clavier)"
+                    onPointerDown={(event) => startResize(event, widget)}
+                    onKeyDown={(event) => resizeWithKeyboard(event, widget)}
+                  />
+                </>
+              ) : null}
+
               {isEditing ? (
                 <div className={styles.cardFooterActions}>
                   {onToggleWidget ? (
@@ -187,6 +320,7 @@ export function DashboardScreen({
                       <Button
                         size="sm"
                         variant="ghost"
+                        aria-label={`Monter ${widget.title ?? MODULE_LABEL[widget.module]}`}
                         onClick={() => onMoveWidget(widget.id, "up")}
                       >
                         ↑
@@ -194,22 +328,28 @@ export function DashboardScreen({
                       <Button
                         size="sm"
                         variant="ghost"
+                        aria-label={`Descendre ${widget.title ?? MODULE_LABEL[widget.module]}`}
                         onClick={() => onMoveWidget(widget.id, "down")}
                       >
                         ↓
                       </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`Décaler à gauche ${widget.title ?? MODULE_LABEL[widget.module]}`}
+                        onClick={() => onMoveWidget(widget.id, "left")}
+                      >
+                        ←
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`Décaler à droite ${widget.title ?? MODULE_LABEL[widget.module]}`}
+                        onClick={() => onMoveWidget(widget.id, "right")}
+                      >
+                        →
+                      </Button>
                     </>
-                  ) : null}
-                  {onResizeWidget ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() =>
-                        onResizeWidget(widget.id, widget.layout.w, widget.layout.h + 1)
-                      }
-                    >
-                      +
-                    </Button>
                   ) : null}
                   {onRemoveWidget ? (
                     <Button size="sm" variant="ghost" onClick={() => onRemoveWidget(widget.id)}>

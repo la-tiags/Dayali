@@ -71,7 +71,7 @@ describe("ReminderWidget", () => {
         injectedItems={[]}
       />,
     );
-    expect(screen.getByText("Aucun rappel pour cette vue.")).toBeInTheDocument();
+    expect(screen.getByText("Aucun rappel à faire pour cette vue.")).toBeInTheDocument();
   });
 
   it("masque les rappels abandonnés sans masquer les autres", () => {
@@ -95,7 +95,10 @@ describe("ReminderWidget", () => {
       .fn()
       .mockResolvedValueOnce([reminder])
       .mockRejectedValueOnce(new Error("lecture impossible"));
-    configureIpc({ reminderList } as never);
+    // reminderFileRef et reminderListDefs sont appelés après reminderList.
+    const reminderFileRef = vi.fn().mockResolvedValue({ hash: "abc123" });
+    const reminderListDefs = vi.fn().mockResolvedValue([]);
+    configureIpc({ reminderList, reminderFileRef, reminderListDefs } as never);
     const { rerender } = render(
       <ReminderWidget placement={placement} view={reminderView} logicalDate="2026-11-12" />,
     );

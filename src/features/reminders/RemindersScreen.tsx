@@ -1,5 +1,5 @@
 import type { FormEvent, KeyboardEvent } from "react";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import type { LocalDate, Reminder, ReminderList, ReminderStatus } from "../../lib/contracts/types";
 import { formatLocalDate, logicalDay } from "../../lib/day";
@@ -8,6 +8,8 @@ import {
   applyRemindersFilter,
   filterForMaJournee,
   isOverdue,
+  prioritizeReminders,
+  reminderUrgency,
   toggleReminderStatus,
 } from "../../lib/reminders";
 import { formatLocalDateLong, resolveTimeZone, systemTimeZone } from "../../lib/time";
@@ -84,6 +86,8 @@ export function RemindersScreen({
       : formatLocalDate(now, timeZone));
 
   const titleId = useId();
+  const quickDateId = useId();
+  const quickListFieldId = useId();
 
   const [quickTitle, setQuickTitle] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
@@ -91,6 +95,9 @@ export function RemindersScreen({
   const [notice, setNotice] = useState<string | null>(null);
   const [reloading, setReloading] = useState(false);
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
+  // Saisie rapide : échéance et liste de destination (null = valeur par défaut déduite de la vue).
+  const [quickDate, setQuickDate] = useState<string | null>(null);
+  const [quickListId, setQuickListId] = useState<string | null>(null);
   const [isCreatingList, setIsCreatingList] = useState(false);
   const [newListName, setNewListName] = useState("");
 
@@ -109,34 +116,36 @@ export function RemindersScreen({
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(true);
 
+  const selectList = (id: string | null) => {
+    setSelectedListId(id);
+    setQuickListId(null);
+  };
+
   const lists = useMemo(() => sortByOrder(reminders.lists), [reminders.lists]);
   const availableLists = useMemo(() => lists.filter((list) => !list.archived), [lists]);
   const resolvedListId = availableLists[0]?.id ?? "";
+  const quickTargetListId = quickListId ?? selectedListId ?? resolvedListId;
   const listNames = useMemo(() => new Map(lists.map((list) => [list.id, list.name])), [lists]);
   const orderedItems = useMemo(
     () => applyRemindersFilter(reminders.items, null, logicalDate),
     [reminders.items, logicalDate],
   );
 
-  const view: "today" | "all" =
-    activeFilter === null ? "today" : activeFilter.dueWithinDays === 0 ? "today" : "all";
+  // Par défaut (aucun filtre) on voit tous les rappels : « Ma journée » sert à prioriser.
+  const view: "today" | "all" = activeFilter?.dueWithinDays === 0 ? "today" : "all";
+  // Dans « Ma journée » un nouveau rappel est daté d'aujourd'hui, sinon il disparaîtrait de la vue.
+  const quickDueDate = quickDate ?? (view === "today" && !selectedListId ? logicalDate : "");
 
+  // Les rappels du jour (et en retard) passent devant, puis les datés, puis ceux sans échéance.
   const openItems = useMemo(() => {
     const listFiltered = selectedListId
       ? orderedItems.filter((item) => item.listId === selectedListId)
       : orderedItems;
-    const baseOpen = listFiltered.filter((item) => item.status === "open");
-    if (view === "all" && !selectedListId) {
-      return [...baseOpen].sort((a, b) => {
-        const aIsToday = a.dueDate === logicalDate || isOverdue(a, logicalDate);
-        const bIsToday = b.dueDate === logicalDate || isOverdue(b, logicalDate);
-        if (aIsToday && !bIsToday) return -1;
-        if (!aIsToday && bIsToday) return 1;
-        return 0;
-      });
-    }
-    return baseOpen;
-  }, [orderedItems, selectedListId, view, logicalDate]);
+    return prioritizeReminders(
+      listFiltered.filter((item) => item.status === "open"),
+      logicalDate,
+    );
+  }, [orderedItems, selectedListId, logicalDate]);
 
   const completedItems = useMemo(() => {
     const listFiltered = selectedListId
@@ -148,12 +157,21 @@ export function RemindersScreen({
     );
   }, [orderedItems, selectedListId]);
 
-  // Premier chargement : « Ma journée »
+  // À l'ouverture de l'écran : charge tous les rappels si le store est vide ou n'a chargé
+  // que « Ma journée » (filtre partiel). Ne recharge pas si le store est déjà prêt avec tous.
+  const initialized = useRef(false);
   useEffect(() => {
-    if (!vault) return;
-    if (reminders.status !== "idle") return;
-    void loadReminders(filterForMaJournee());
-  }, [vault, reminders.status, loadReminders]);
+    if (!vault || initialized.current) return;
+    initialized.current = true;
+    // On recharge seulement si le store est vide/en attente, ou si le filtre actif est
+    // restrictif (Ma journée = dueWithinDays:0) pour avoir la vue complète dès l'ouverture.
+    if (reminders.status === "idle" || reminders.status === "loading") {
+      void loadReminders({});
+    } else if (reminders.status === "ready" && activeFilter?.dueWithinDays === 0) {
+      // Filtre partiel en store : recharge silencieusement en arrière-plan sans spinner.
+      void loadReminders({});
+    }
+  }, [vault, reminders.status, activeFilter, loadReminders]);
 
   const loading = reminders.status === "loading" || reminders.status === "idle";
   const error = reminders.error;
@@ -183,7 +201,7 @@ export function RemindersScreen({
       setFormError("Le titre du rappel est obligatoire.");
       return;
     }
-    const targetListId = selectedListId ?? resolvedListId;
+    const targetListId = quickTargetListId;
     if (!targetListId) {
       setFormError("Aucune liste de rappels n'est disponible dans ce vault.");
       return;
@@ -202,7 +220,7 @@ export function RemindersScreen({
       title: cleanTitle,
       notes: null,
       status: "open",
-      dueDate: null,
+      dueDate: quickDueDate || null,
       dueTime: null,
       dueTimeZone: null,
       projectId: null,
@@ -218,6 +236,7 @@ export function RemindersScreen({
     setCreating(false);
     if (saved) {
       setQuickTitle("");
+      setQuickDate(null);
       setNotice("Rappel créé.");
     }
   };
@@ -241,7 +260,7 @@ export function RemindersScreen({
     };
     const saved = await saveReminderList(newList);
     if (saved) {
-      setSelectedListId(newList.id);
+      selectList(newList.id);
       setNewListName("");
       setIsCreatingList(false);
       setNotice(`Liste « ${clean} » créée.`);
@@ -332,7 +351,7 @@ export function RemindersScreen({
             variant={view === "today" && selectedListId === null ? "primary" : "secondary"}
             aria-pressed={view === "today" && selectedListId === null}
             onClick={() => {
-              setSelectedListId(null);
+              selectList(null);
               void changeView("today");
             }}
             disabled={loading}
@@ -344,7 +363,7 @@ export function RemindersScreen({
             variant={view === "all" && selectedListId === null ? "primary" : "secondary"}
             aria-pressed={view === "all" && selectedListId === null}
             onClick={() => {
-              setSelectedListId(null);
+              selectList(null);
               void changeView("all");
             }}
             disabled={loading}
@@ -358,7 +377,7 @@ export function RemindersScreen({
               variant={selectedListId === l.id ? "primary" : "secondary"}
               aria-pressed={selectedListId === l.id}
               onClick={() => {
-                setSelectedListId(l.id);
+                selectList(l.id);
                 if (view !== "all") void changeView("all");
               }}
               disabled={loading}
@@ -448,6 +467,37 @@ export function RemindersScreen({
           onKeyDown={(e) => void handleQuickCreate(e)}
           aria-label="Titre du nouveau rappel"
         />
+        <div className={styles.quickMeta}>
+          <div className={styles.quickMetaField}>
+            <label className={styles.quickMetaLabel} htmlFor={quickDateId}>
+              Pour le
+            </label>
+            <input
+              id={quickDateId}
+              type="date"
+              className={styles.quickMetaInput}
+              value={quickDueDate}
+              onChange={(e) => setQuickDate(e.target.value)}
+            />
+          </div>
+          <div className={styles.quickMetaField}>
+            <label className={styles.quickMetaLabel} htmlFor={quickListFieldId}>
+              Dans la liste
+            </label>
+            <select
+              id={quickListFieldId}
+              className={styles.quickMetaInput}
+              value={quickTargetListId}
+              onChange={(e) => setQuickListId(e.target.value)}
+            >
+              {availableLists.map((list) => (
+                <option key={list.id} value={list.id}>
+                  {list.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
         {formError ? (
           <p className={styles.formError} role="alert" aria-live="polite">
             {formError}
@@ -487,12 +537,16 @@ export function RemindersScreen({
             <ul className={styles.items}>
               {openItems.map((reminder) => {
                 const overdue = isOverdue(reminder, logicalDate);
+                const urgency = reminderUrgency(reminder, logicalDate);
                 const listName = listNames.get(reminder.listId) ?? reminder.listId;
                 const due = dueLabel(reminder, locale);
                 const isConfirming = confirmingId === reminder.id;
                 const priority = reminder.priority;
                 return (
-                  <li key={reminder.id} className={styles.item}>
+                  <li
+                    key={reminder.id}
+                    className={`${styles.item} ${urgency === "today" ? styles.itemToday : ""}`}
+                  >
                     <div className={styles.itemMain}>
                       <input
                         type="checkbox"

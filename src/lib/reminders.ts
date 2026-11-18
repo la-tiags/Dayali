@@ -2,9 +2,37 @@ import { addDays } from "./agenda";
 import type { LocalDate, Reminder, RemindersFilter } from "./contracts/types";
 import { parseZonedDateTime } from "./time";
 
-/** « Ma journée » = listes multiples désactivées : statuts ouverts + échéances ≤ jour logique (retards inclus). */
+/** « Ma journée » = filtre à échéances ≤ jour logique (retards inclus) ; `{}` ou `null` = tous les rappels. */
 export function isMaJournee(filter: RemindersFilter | null | undefined): boolean {
-  return (filter?.dueWithinDays ?? 0) === 0;
+  return filter?.dueWithinDays === 0;
+}
+
+/** Urgence d'un rappel : `today` (aujourd'hui ou en retard), `upcoming` (daté, plus tard) ou `someday` (sans échéance). */
+export type ReminderUrgency = "today" | "upcoming" | "someday";
+
+export function reminderUrgency(reminder: Reminder, logicalDay: LocalDate): ReminderUrgency {
+  if (reminder.dueDate === null) return "someday";
+  return reminder.dueDate <= logicalDay ? "today" : "upcoming";
+}
+
+const URGENCY_RANK: Readonly<Record<ReminderUrgency, number>> = {
+  today: 0,
+  upcoming: 1,
+  someday: 2,
+};
+
+/**
+ * Met en avant la journée : d'abord ce qui est dû aujourd'hui ou en retard, puis ce qui est
+ * daté plus tard, puis ce qui n'a pas d'échéance. L'ordre d'entrée est conservé dans chaque groupe.
+ */
+export function prioritizeReminders<T extends Reminder>(
+  items: readonly T[],
+  logicalDay: LocalDate,
+): T[] {
+  return [...items].sort(
+    (a, b) =>
+      URGENCY_RANK[reminderUrgency(a, logicalDay)] - URGENCY_RANK[reminderUrgency(b, logicalDay)],
+  );
 }
 
 /** Filtre d'une liste de rappels choisie par l'utilisateur. */
