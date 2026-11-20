@@ -91,3 +91,21 @@ button.link {
   z-index: 9999;
   font-size: 1rem;
 }
+
+/*
+ * Transition entre écrans (React Router `viewTransition`) : fondu enchaîné de l'ancien vers le
+ * nouvel écran, sans jamais passer par le fond sombre. Ignoré par les moteurs sans View Transitions.
+ */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 320ms;
+  animation-timing-function: ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none;
+  }
+}

@@ -40,7 +40,7 @@ export function TodayRoute() {
     config && dayState ? isDayStarted(dayState, now, config.dayStartHour, timeZone) : false;
 
   const goDashboard = useCallback(() => {
-    navigate("/dashboard");
+    navigate("/dashboard", { viewTransition: true });
   }, [navigate]);
 
   const reviewHomeRequested =

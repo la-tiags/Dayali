@@ -9,7 +9,8 @@
   color: var(--color-text);
 }
 
-.background {
+.background,
+.backgroundBlur {
   position: fixed;
   z-index: 0;
   inset: 0;
@@ -20,17 +21,23 @@
     linear-gradient(160deg, #201a13 0%, #17150f 48%, #0d0c09 100%);
   background-position: center;
   background-size: cover;
-  filter: blur(0) brightness(1);
-  transform: scale(1);
-  transition:
-    filter 400ms ease,
-    transform 400ms ease;
-  will-change: filter, transform;
 }
 
-.preview .background {
+/*
+ * Version floue et assombrie du fond, superposée à la nette. On ne fait que fondre son opacité :
+ * animer `filter` sur une photo plein écran provoque des images noires dans WebKit le temps que
+ * la couche soit recalculée.
+ */
+.backgroundBlur {
   filter: blur(14px) brightness(0.6);
   transform: scale(1.06);
+  opacity: 0;
+  transition: opacity 400ms ease;
+  will-change: opacity;
+}
+
+.preview .backgroundBlur {
+  opacity: 1;
 }
 
 /* Voile sombre derrière tout texte, y compris l'heure, la citation et le crédit. */
@@ -106,8 +113,8 @@
   align-items: center;
   gap: var(--space-2);
   transition:
-    opacity 500ms ease 150ms,
-    transform 500ms cubic-bezier(0.16, 1, 0.3, 1) 150ms;
+    opacity 900ms ease 550ms,
+    transform 900ms cubic-bezier(0.22, 1, 0.36, 1) 550ms;
 }
 
 .greeting {
@@ -120,19 +127,40 @@
   line-height: 1.15;
   text-shadow: 0 2px 20px rgb(0 0 0 / 55%);
   transition:
-    transform 700ms cubic-bezier(0.16, 1, 0.3, 1),
-    font-size 700ms cubic-bezier(0.16, 1, 0.3, 1);
+    transform 1300ms cubic-bezier(0.65, 0, 0.35, 1),
+    text-shadow 1300ms ease;
 }
 
+/*
+ * Intro : le titre apparaît en fondu au centre de l'écran (agrandi), puis glisse vers sa place.
+ * Seuls `transform` et `opacity` sont animés (pas de `font-size`, qui ferait sauter la mise en page).
+ */
 .cinematicIntro .greeting {
-  font-size: clamp(2.5rem, 6vw, 4rem);
-  transform: translateY(var(--intro-offset-y, calc(28vh - 1.5rem))) scale(1.15);
+  /* Pas de transition ici : la position mesurée au montage doit s'appliquer d'emblée. */
+  transition: none;
+  transform: translateY(var(--intro-offset-y, calc(28vh - 1.5rem))) scale(1.55);
   text-shadow: 0 4px 30px rgb(0 0 0 / 75%);
+  animation: greetingIn 1000ms ease-out both;
 }
 
 .cinematicReady .greeting {
-  font-size: clamp(1.75rem, 4vw, 2.75rem);
   transform: translateY(0) scale(1);
+}
+
+@keyframes greetingIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (width <= 43.75rem) {
+  .cinematicIntro .greeting {
+    transform: translateY(var(--intro-offset-y, calc(28vh - 1.5rem))) scale(1.2);
+  }
 }
 
 .clock {
@@ -178,6 +206,9 @@
   backdrop-filter: blur(10px);
   text-align: center;
   box-shadow: 0 4px 20px rgb(0 0 0 / 30%);
+  transition:
+    opacity 900ms ease 850ms,
+    transform 900ms cubic-bezier(0.22, 1, 0.36, 1) 850ms;
 }
 
 .quoteText {
@@ -229,6 +260,9 @@
 }
 
 .startBlock {
+  transition:
+    opacity 900ms ease 1100ms,
+    transform 900ms cubic-bezier(0.22, 1, 0.36, 1) 1100ms;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -293,7 +327,10 @@
 @media (prefers-reduced-motion: reduce) {
   .primaryAction,
   .homeHero,
-  .heroDetails {
+  .heroDetails,
+  .quote,
+  .startBlock,
+  .greeting {
     animation: none;
     transition: none;
   }
@@ -553,7 +590,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .background,
+  .backgroundBlur,
   .veil,
   .primaryAction {
     transition: none;

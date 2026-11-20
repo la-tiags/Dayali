@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import bundledQuotes from "../../assets/quotes-fr.json";
 import { Button } from "../../components/ui/Button";
 import { SkipLink } from "../../components/ui/SkipLink";
@@ -146,6 +146,21 @@ export function TodayScreen({
     onOpenDashboard();
   }, [onOpenDashboard]);
 
+  // Mesure du titre AVANT le premier affichage : il doit démarrer au centre vertical de l'écran.
+  // La transformation d'intro est neutralisée le temps de la mesure ; sinon on mesurerait un
+  // titre déjà décalé et on obtiendrait un décalage faux (le titre glissait donc deux fois).
+  useLayoutEffect(() => {
+    if (phase !== "home") return;
+    const greetingEl = greetingRef.current;
+    if (!greetingEl) return;
+    const previousTransform = greetingEl.style.transform;
+    greetingEl.style.transform = "none";
+    const rect = greetingEl.getBoundingClientRect();
+    greetingEl.style.transform = previousTransform;
+    const diff = window.innerHeight / 2 - (rect.top + rect.height / 2);
+    if (Math.abs(diff) > 2) setIntroOffsetY(diff);
+  }, [phase]);
+
   useEffect(() => {
     if (phase !== "home") return;
     if (
@@ -155,20 +170,9 @@ export function TodayScreen({
       setCinematicDone(true);
       return;
     }
-
-    if (greetingRef.current && typeof window !== "undefined") {
-      const rect = greetingRef.current.getBoundingClientRect();
-      const currentCenterY = rect.top + rect.height / 2;
-      const viewportCenterY = window.innerHeight / 2;
-      const diff = viewportCenterY - currentCenterY;
-      if (Math.abs(diff) > 2) {
-        setIntroOffsetY(diff);
-      }
-    }
-
     const timer = setTimeout(() => {
       setCinematicDone(true);
-    }, 750);
+    }, 1100);
     return () => clearTimeout(timer);
   }, [phase]);
 
@@ -236,6 +240,7 @@ export function TodayScreen({
         data-testid="home-background"
         aria-hidden="true"
       />
+      <div className={styles.backgroundBlur} style={backgroundStyle} aria-hidden="true" />
       <div className={styles.veil} aria-hidden="true" />
 
       <SkipLink />
