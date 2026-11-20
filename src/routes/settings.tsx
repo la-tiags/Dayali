@@ -5,6 +5,7 @@ import { StatusBanners } from "../components/ui/StatusBanners";
 import { SettingsScreen } from "../features/settings/SettingsScreen";
 import { resolveTimeZone, systemTimeZone } from "../lib/time";
 import { useAppStore } from "../stores/app.store";
+import { useUpdaterStore } from "../stores/updater.store";
 
 /** Route Réglages : préférences de l'application, gestion du vault et crédits. */
 export function SettingsRoute() {
@@ -18,6 +19,7 @@ export function SettingsRoute() {
   const reloadConfig = useAppStore((state) => state.reloadConfig);
   const setOpenDashboardOnLaunch = useAppStore((state) => state.setOpenDashboardOnLaunch);
   const dismissError = useAppStore((state) => state.dismissError);
+  const installedVersion = useUpdaterStore((state) => state.currentVersion);
 
   const resolvedZone = resolveTimeZone(systemTimeZone());
 
@@ -58,7 +60,7 @@ export function SettingsRoute() {
         busy={busy}
         onOpenDashboardOnLaunchChange={(val) => void setOpenDashboardOnLaunch(val)}
         onOpenVaultChooser={() => void openVaultChooser()}
-        version="0.1.0"
+        version={installedVersion ?? "inconnue"}
       />
     </AppShell>
   );

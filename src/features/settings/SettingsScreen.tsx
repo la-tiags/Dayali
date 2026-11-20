@@ -1,6 +1,7 @@
 import { useId } from "react";
 import { Button } from "../../components/ui/Button";
 import { SettingToggle } from "../../components/ui/SettingToggle";
+import { UpdatesPanel } from "../updates/UpdatesPanel";
 import styles from "./SettingsScreen.module.css";
 
 export interface SettingsScreenProps {
@@ -25,6 +26,7 @@ export function SettingsScreen({
   const titleId = useId();
   const vaultSectionId = useId();
   const prefsSectionId = useId();
+  const updatesSectionId = useId();
   const aboutSectionId = useId();
   const launchToggleId = useId();
 
@@ -72,6 +74,13 @@ export function SettingsScreen({
           disabled={busy || !onOpenDashboardOnLaunchChange}
           onChange={(value) => onOpenDashboardOnLaunchChange?.(value)}
         />
+      </section>
+
+      <section className={styles.card} aria-labelledby={updatesSectionId}>
+        <h2 className={styles.sectionTitle} id={updatesSectionId}>
+          Mises à jour
+        </h2>
+        <UpdatesPanel />
       </section>
 
       <section className={styles.card} aria-labelledby={aboutSectionId}>

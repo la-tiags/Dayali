@@ -34,15 +34,15 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFFRUM5MTk3MkQ5ODA3REQKUldUZEI1Z3RsNUhzSGtRcFJLdEI1c3oxVGZNaFFGSGdaNGRyUDVYcEg3SmtKM1Fyc1FKNXpyazYK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYxMjM1RTNCMDk0RDc1MzIKUldReWRVMEpPMTRqWVl6bmI5dk5VRElTSmc2NmhTYlczaWpxSDhKcEZYcFRxZlRkNG1Yc0ZISVoK",
       "endpoints": [
         "https://github.com/la-tiags/Dayali/releases/latest/download/latest.json"
       ],
-      "dialog": true,
       "windows": {
         "installMode": "passive"
       }

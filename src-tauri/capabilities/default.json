@@ -1,7 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capacités minimales de Dayali : noyau Tauri et sélecteur de dossier. Aucun accès fs générique.",
-  "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open"]
+  "description": "Capacités minimales de Dayali : noyau Tauri, sélecteur de dossier et mises à jour signées depuis GitHub Releases (vérification, installation, redémarrage). Aucun accès fs générique.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    "updater:default",
+    "process:allow-restart"
+  ]
 }

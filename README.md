@@ -103,6 +103,12 @@ cd src-tauri && cargo test  # Tests Rust
 
 ---
 
+## Mises à jour
+
+L'application installée vérifie au démarrage s'il existe une release GitHub plus récente (**Réglages →
+Mises à jour** pour le faire à la main) et propose de l'installer, avec des paquets signés.
+Pour publier une version : voir [`RELEASING.md`](RELEASING.md).
+
 ## Structure du projet
 
 ```
