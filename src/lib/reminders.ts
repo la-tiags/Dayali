@@ -135,3 +135,38 @@ export function toggleReminderStatus(
   }
   return { ...reminder, status, completedAt: null };
 }
+
+const DAY_MS = 86_400_000;
+
+function dayNumber(date: LocalDate): number {
+  return Math.round(Date.parse(`${date}T00:00:00Z`) / DAY_MS);
+}
+
+/**
+ * Échéance en une courte expression pour les lignes compactes : « Aujourd'hui », « Demain »,
+ * « Après-demain » (de J-2 à J+2), sinon « lun. 2 nov. » (avec l'année si elle diffère), suivie de
+ * l'heure si elle existe. `null` pour un rappel sans échéance.
+ */
+export function compactDueLabel(
+  reminder: Reminder,
+  logicalDay: LocalDate,
+  locale = "fr-FR",
+): string | null {
+  if (reminder.dueDate === null) return null;
+  const diff = dayNumber(reminder.dueDate) - dayNumber(logicalDay);
+  let label: string;
+  if (Math.abs(diff) <= 2) {
+    const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(diff, "day");
+    label = relative.charAt(0).toUpperCase() + relative.slice(1);
+  } else {
+    const sameYear = reminder.dueDate.slice(0, 4) === logicalDay.slice(0, 4);
+    label = new Intl.DateTimeFormat(locale, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      ...(sameYear ? {} : { year: "numeric" }),
+      timeZone: "UTC",
+    }).format(new Date(`${reminder.dueDate}T00:00:00Z`));
+  }
+  return reminder.dueTime ? `${label} ${reminder.dueTime}` : label;
+}

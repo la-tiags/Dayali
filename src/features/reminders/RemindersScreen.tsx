@@ -1,20 +1,19 @@
 import type { FormEvent, KeyboardEvent } from "react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button } from "../../components/ui/Button";
-import type { LocalDate, Reminder, ReminderList, ReminderStatus } from "../../lib/contracts/types";
+import type { LocalDate, Reminder, ReminderList } from "../../lib/contracts/types";
 import { formatLocalDate, logicalDay } from "../../lib/day";
 import { userMessage } from "../../lib/ipc/errors";
 import {
   applyRemindersFilter,
   filterForMaJournee,
-  isOverdue,
   prioritizeReminders,
-  reminderUrgency,
   toggleReminderStatus,
 } from "../../lib/reminders";
-import { formatLocalDateLong, resolveTimeZone, systemTimeZone } from "../../lib/time";
+import { resolveTimeZone, systemTimeZone } from "../../lib/time";
 import { useClock } from "../../lib/useClock";
 import { useAppStore } from "../../stores/app.store";
+import { ReminderRow } from "./ReminderRow";
 import styles from "./RemindersScreen.module.css";
 
 export interface RemindersScreenProps {
@@ -25,26 +24,6 @@ export interface RemindersScreenProps {
   locale?: string;
   /** Journée logique injectée ; sinon calculée depuis la config et l'état de journée. */
   logicalDate?: LocalDate;
-}
-
-const STATUS_LABEL: Readonly<Record<ReminderStatus, string>> = {
-  open: "À faire",
-  done: "Terminé",
-  cancelled: "Annulé",
-  abandoned: "Abandonné",
-};
-
-const PRIORITY_LABEL: Readonly<Record<string, string>> = {
-  low: "Priorité basse",
-  medium: "Priorité moyenne",
-  high: "Priorité haute",
-};
-
-function dueLabel(reminder: Reminder, locale: string): string | null {
-  if (!reminder.dueDate) return null;
-  const date = formatLocalDateLong(reminder.dueDate, locale);
-  if (!reminder.dueTime) return date;
-  return `${date} à ${reminder.dueTime}`;
 }
 
 function sortByOrder(lists: readonly ReminderList[]): ReminderList[] {
@@ -125,6 +104,7 @@ export function RemindersScreen({
   const availableLists = useMemo(() => lists.filter((list) => !list.archived), [lists]);
   const resolvedListId = availableLists[0]?.id ?? "";
   const quickTargetListId = quickListId ?? selectedListId ?? resolvedListId;
+  const showListNames = selectedListId === null && availableLists.length > 1;
   const listNames = useMemo(() => new Map(lists.map((list) => [list.id, list.name])), [lists]);
   const orderedItems = useMemo(
     () => applyRemindersFilter(reminders.items, null, logicalDate),
@@ -322,6 +302,16 @@ export function RemindersScreen({
     }
   };
 
+  /** Renommage direct depuis la liste ; renvoie `false` si l'écriture échoue (le titre revient). */
+  const rename = async (reminder: Reminder, title: string): Promise<boolean> => {
+    setNotice(null);
+    const saved = await saveReminder({
+      reminder: { ...reminder, title, updatedAt: now.toISOString() },
+    });
+    if (saved) setNotice("Rappel renommé.");
+    return saved;
+  };
+
   const remove = async (id: string) => {
     setNotice(null);
     setDeletingId(id);
@@ -329,6 +319,7 @@ export function RemindersScreen({
     setDeletingId(null);
     if (removed) {
       setConfirmingId(null);
+      setInspectingReminder(null);
       setNotice("Rappel déplacé dans la corbeille.");
     }
   };
@@ -535,115 +526,20 @@ export function RemindersScreen({
           <div className={styles.listsContainer}>
             {/* Tâches ouvertes / à faire */}
             <ul className={styles.items}>
-              {openItems.map((reminder) => {
-                const overdue = isOverdue(reminder, logicalDate);
-                const urgency = reminderUrgency(reminder, logicalDate);
-                const listName = listNames.get(reminder.listId) ?? reminder.listId;
-                const due = dueLabel(reminder, locale);
-                const isConfirming = confirmingId === reminder.id;
-                const priority = reminder.priority;
-                return (
-                  <li
-                    key={reminder.id}
-                    className={`${styles.item} ${urgency === "today" ? styles.itemToday : ""}`}
-                  >
-                    <div className={styles.itemMain}>
-                      <input
-                        type="checkbox"
-                        className={styles.checkbox}
-                        checked={reminder.status === "done"}
-                        disabled={reminder.status === "cancelled" || togglingId === reminder.id}
-                        aria-label={
-                          reminder.status === "done"
-                            ? `Rouvrir « ${reminder.title} »`
-                            : `Marquer « ${reminder.title} » comme terminé`
-                        }
-                        onChange={() => void toggle(reminder)}
-                      />
-                      <div className={styles.itemBody}>
-                        <div className={styles.itemHeaderLine}>
-                          <h3 className={styles.itemTitle}>{reminder.title}</h3>
-                          <button
-                            type="button"
-                            className={styles.infoButton}
-                            data-testid="reminder-info-btn"
-                            aria-label={`Propriétés avancées de « ${reminder.title} »`}
-                            onClick={() => openAdvanced(reminder)}
-                          >
-                            <span aria-hidden="true">ⓘ</span>
-                          </button>
-                        </div>
-                        <p className={styles.itemMeta}>
-                          {reminder.status !== "open" ? (
-                            <span className={styles.statusBadge}>
-                              {STATUS_LABEL[reminder.status]}
-                            </span>
-                          ) : null}
-                          <span className={styles.listName}>{listName}</span>
-                          {due ? <span>Échéance : {due}</span> : null}
-                          {priority ? (
-                            <span className={styles.priorityBadge}>{PRIORITY_LABEL[priority]}</span>
-                          ) : null}
-                          {overdue ? <span className={styles.overdue}>En retard</span> : null}
-                          {view === "all" && reminder.dueDate === logicalDate ? (
-                            <span className={styles.todayBadge}>Aujourd'hui</span>
-                          ) : null}
-                        </p>
-                        {reminder.notes ? <p className={styles.notes}>{reminder.notes}</p> : null}
-                      </div>
-                    </div>
-
-                    <div className={styles.itemActions}>
-                      {isConfirming ? (
-                        <div
-                          className={styles.confirm}
-                          role="alertdialog"
-                          aria-labelledby={`confirm-title-${reminder.id}`}
-                          aria-describedby={`confirm-detail-${reminder.id}`}
-                        >
-                          <p className={styles.confirmTitle} id={`confirm-title-${reminder.id}`}>
-                            Supprimer « {reminder.title} » ?
-                          </p>
-                          <p className={styles.confirmDetail} id={`confirm-detail-${reminder.id}`}>
-                            Le rappel sera déplacé dans la corbeille, pas effacé du disque.
-                          </p>
-                          <div className={styles.formActions}>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              disabled={deletingId === reminder.id}
-                              onClick={() => void remove(reminder.id)}
-                            >
-                              {deletingId === reminder.id
-                                ? "Suppression…"
-                                : "Confirmer la suppression"}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              disabled={deletingId === reminder.id}
-                              onClick={() => setConfirmingId(null)}
-                            >
-                              Annuler
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            setNotice(null);
-                            setConfirmingId(reminder.id);
-                          }}
-                        >
-                          Supprimer
-                        </Button>
-                      )}
-                    </div>
-                  </li>
-                );
-              })}
+              {openItems.map((reminder) => (
+                <ReminderRow
+                  key={reminder.id}
+                  reminder={reminder}
+                  listName={listNames.get(reminder.listId) ?? reminder.listId}
+                  showListName={showListNames}
+                  logicalDate={logicalDate}
+                  locale={locale}
+                  busy={togglingId === reminder.id}
+                  onToggle={() => void toggle(reminder)}
+                  onRename={(title) => rename(reminder, title)}
+                  onOpenInfo={() => openAdvanced(reminder)}
+                />
+              ))}
             </ul>
 
             {/* Tâches terminées séparées */}
@@ -660,96 +556,20 @@ export function RemindersScreen({
                 </button>
                 {showCompleted ? (
                   <ul className={styles.items}>
-                    {completedItems.map((reminder) => {
-                      const listName = listNames.get(reminder.listId) ?? reminder.listId;
-                      const due = dueLabel(reminder, locale);
-                      const isConfirming = confirmingId === reminder.id;
-                      return (
-                        <li key={reminder.id} className={`${styles.item} ${styles.itemDone}`}>
-                          <div className={styles.itemMain}>
-                            <input
-                              type="checkbox"
-                              className={styles.checkbox}
-                              checked={reminder.status === "done"}
-                              disabled={togglingId === reminder.id}
-                              aria-label={`Rouvrir « ${reminder.title} »`}
-                              onChange={() => void toggle(reminder)}
-                            />
-                            <div className={styles.itemBody}>
-                              <div className={styles.itemHeaderLine}>
-                                <h3 className={`${styles.itemTitle} ${styles.titleDone}`}>
-                                  {reminder.title}
-                                </h3>
-                                <button
-                                  type="button"
-                                  className={styles.infoButton}
-                                  aria-label={`Propriétés avancées de « ${reminder.title} »`}
-                                  onClick={() => openAdvanced(reminder)}
-                                >
-                                  <span aria-hidden="true">ⓘ</span>
-                                </button>
-                              </div>
-                              <p className={styles.itemMeta}>
-                                <span className={styles.statusBadge}>
-                                  {STATUS_LABEL[reminder.status]}
-                                </span>
-                                <span className={styles.listName}>{listName}</span>
-                                {due ? <span>Échéance : {due}</span> : null}
-                              </p>
-                              {reminder.notes ? (
-                                <p className={styles.notes}>{reminder.notes}</p>
-                              ) : null}
-                            </div>
-                          </div>
-
-                          <div className={styles.itemActions}>
-                            {isConfirming ? (
-                              <div
-                                className={styles.confirm}
-                                role="alertdialog"
-                                aria-labelledby={`confirm-title-${reminder.id}`}
-                                aria-describedby={`confirm-detail-${reminder.id}`}
-                              >
-                                <p
-                                  className={styles.confirmTitle}
-                                  id={`confirm-title-${reminder.id}`}
-                                >
-                                  Supprimer « {reminder.title} » ?
-                                </p>
-                                <div className={styles.formActions}>
-                                  <Button
-                                    size="sm"
-                                    variant="secondary"
-                                    disabled={deletingId === reminder.id}
-                                    onClick={() => void remove(reminder.id)}
-                                  >
-                                    Supprimer
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => setConfirmingId(null)}
-                                  >
-                                    Annuler
-                                  </Button>
-                                </div>
-                              </div>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => {
-                                  setNotice(null);
-                                  setConfirmingId(reminder.id);
-                                }}
-                              >
-                                Supprimer
-                              </Button>
-                            )}
-                          </div>
-                        </li>
-                      );
-                    })}
+                    {completedItems.map((reminder) => (
+                      <ReminderRow
+                        key={reminder.id}
+                        reminder={reminder}
+                        listName={listNames.get(reminder.listId) ?? reminder.listId}
+                        showListName={showListNames}
+                        logicalDate={logicalDate}
+                        locale={locale}
+                        busy={togglingId === reminder.id}
+                        onToggle={() => void toggle(reminder)}
+                        onRename={(title) => rename(reminder, title)}
+                        onOpenInfo={() => openAdvanced(reminder)}
+                      />
+                    ))}
                   </ul>
                 ) : null}
               </div>
@@ -891,6 +711,58 @@ export function RemindersScreen({
                 </Button>
               </div>
             </form>
+
+            <div className={styles.dangerZone}>
+              {confirmingId === inspectingReminder.id ? (
+                <div
+                  className={styles.confirm}
+                  role="alertdialog"
+                  aria-labelledby={`confirm-title-${inspectingReminder.id}`}
+                  aria-describedby={`confirm-detail-${inspectingReminder.id}`}
+                >
+                  <p className={styles.confirmTitle} id={`confirm-title-${inspectingReminder.id}`}>
+                    Supprimer « {inspectingReminder.title} » ?
+                  </p>
+                  <p
+                    className={styles.confirmDetail}
+                    id={`confirm-detail-${inspectingReminder.id}`}
+                  >
+                    Le rappel sera déplacé dans la corbeille, pas effacé du disque.
+                  </p>
+                  <div className={styles.formActions}>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={deletingId === inspectingReminder.id}
+                      onClick={() => void remove(inspectingReminder.id)}
+                    >
+                      {deletingId === inspectingReminder.id
+                        ? "Suppression…"
+                        : "Confirmer la suppression"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={deletingId === inspectingReminder.id}
+                      onClick={() => setConfirmingId(null)}
+                    >
+                      Annuler
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setNotice(null);
+                    setConfirmingId(inspectingReminder.id);
+                  }}
+                >
+                  Supprimer le rappel
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       ) : null}

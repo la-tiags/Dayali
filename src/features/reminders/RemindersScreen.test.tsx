@@ -125,10 +125,14 @@ describe("RemindersScreen", () => {
 
     expect(screen.getByRole("heading", { level: 1, name: "Rappels" })).toBeInTheDocument();
     expect(screen.getByText("2 rappel(s) affiché(s)")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Payer la facture" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Appeler le dentiste" })).toBeInTheDocument();
-    expect(screen.getByText("En retard")).toBeInTheDocument();
-    expect(screen.getByText(/Échéance : lundi 26 octobre 2026/)).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Payer la facture")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Appeler le dentiste")).toBeInTheDocument();
+    expect(screen.getByText(/En retard/)).toBeInTheDocument();
+    // Échéance compacte : « Hier » (26/10) pour un jour logique au 27/10, date complète au survol.
+    expect(screen.getByText("Hier")).toHaveAttribute(
+      "title",
+      expect.stringMatching(/26 octobre 2026/),
+    );
     expect(screen.getByRole("checkbox", { name: "Rouvrir « Appeler le dentiste »" })).toBeChecked();
     expect(screen.getByText("Terminé")).toBeInTheDocument();
   });
@@ -172,7 +176,7 @@ describe("RemindersScreen", () => {
     await user.type(quickInput, "Nouveau rappel{enter}");
 
     expect(screen.getByText("Rappel créé.")).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "Nouveau rappel" })).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("Nouveau rappel")).toBeInTheDocument();
     expect(screen.getByText("1 rappel(s) affiché(s)")).toBeInTheDocument();
   });
 
@@ -200,9 +204,7 @@ describe("RemindersScreen", () => {
     await user.click(screen.getByRole("button", { name: "Enregistrer" }));
 
     expect(screen.getByText("Rappel modifié.")).toBeInTheDocument();
-    expect(
-      await screen.findByRole("heading", { name: "Facture payée et validée" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("Facture payée et validée")).toBeInTheDocument();
     expect(screen.getByText("Priorité haute")).toBeInTheDocument();
   });
 
@@ -212,7 +214,10 @@ describe("RemindersScreen", () => {
 
     renderScreen();
 
-    await user.click(screen.getByRole("button", { name: "Supprimer" }));
+    // La suppression n'est plus sur la ligne : elle se trouve dans le panneau ⓘ.
+    expect(screen.queryByRole("button", { name: /Supprimer/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Propriétés avancées/ }));
+    await user.click(screen.getByRole("button", { name: "Supprimer le rappel" }));
 
     const dialog = screen.getByRole("alertdialog");
     expect(dialog).toHaveTextContent("Supprimer « Payer la facture » ?");
@@ -221,8 +226,9 @@ describe("RemindersScreen", () => {
     await user.click(screen.getByRole("button", { name: "Confirmer la suppression" }));
 
     expect(screen.getByText("Rappel déplacé dans la corbeille.")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Payer la facture" })).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Payer la facture")).not.toBeInTheDocument();
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("signale E_PRECONDITION_FAILED et propose « Recharger »", async () => {
@@ -248,7 +254,7 @@ describe("RemindersScreen", () => {
 
     await user.click(reload);
 
-    expect(await screen.findByRole("heading", { name: "Payer la facture" })).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("Payer la facture")).toBeInTheDocument();
     expect(screen.queryByText("E_PRECONDITION_FAILED")).not.toBeInTheDocument();
   });
 
@@ -268,11 +274,14 @@ describe("RemindersScreen", () => {
 
     renderScreen();
 
-    await user.click(screen.getByRole("button", { name: "Supprimer" }));
+    await user.click(screen.getByRole("button", { name: /Propriétés avancées/ }));
+    await user.click(screen.getByRole("button", { name: "Supprimer le rappel" }));
     await user.click(screen.getByRole("button", { name: "Confirmer la suppression" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("E_PRECONDITION_FAILED");
-    expect(screen.getByRole("heading", { name: "Payer la facture" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: "Marquer « Payer la facture » comme terminé" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Recharger" })).toBeInTheDocument();
   });
 
@@ -300,12 +309,16 @@ describe("RemindersScreen", () => {
     expect(alert).toHaveTextContent("changé entre-temps");
     expect(alert).toHaveTextContent("rien n'a été écrasé");
     // L'écran montre toujours la version chargée, pas la version refusée.
-    expect(screen.getByRole("heading", { name: "Payer la facture" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Modifié ici" })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: "Marquer « Payer la facture » comme terminé" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /Modifié ici/ })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Recharger" }));
 
-    expect(await screen.findByRole("heading", { name: "Modifié ailleurs" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("checkbox", { name: "Marquer « Modifié ailleurs » comme terminé" }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("E_PRECONDITION_FAILED")).not.toBeInTheDocument();
   });
 
@@ -327,10 +340,96 @@ describe("RemindersScreen", () => {
 
     await user.click(screen.getByRole("button", { name: "Tous" }));
 
-    expect(await screen.findByText("Rendez-vous important")).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("Rendez-vous important")).toBeInTheDocument();
     const dueElement = screen.getByText(/11:00/);
     expect(dueElement).toBeInTheDocument();
     expect(dueElement.textContent).not.toContain("UTC");
     expect(dueElement.textContent).not.toContain("Europe/Paris");
+  });
+
+  it("renomme un rappel directement dans la liste (Entrée enregistre)", async () => {
+    const user = userEvent.setup();
+    await seed({ items: [makeReminder()] });
+
+    renderScreen();
+
+    const title = screen.getByDisplayValue("Payer la facture");
+    await user.clear(title);
+    await user.type(title, "Payer la facture d'électricité{enter}");
+
+    expect(await screen.findByText("Rappel renommé.")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Payer la facture d'électricité")).toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", {
+        name: "Marquer « Payer la facture d'électricité » comme terminé",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("Échap annule le renommage et un titre vide n'écrit rien", async () => {
+    const user = userEvent.setup();
+    await seed({ items: [makeReminder()] });
+
+    renderScreen();
+
+    const title = screen.getByDisplayValue("Payer la facture");
+    await user.clear(title);
+    await user.type(title, "Autre titre{Escape}");
+    expect(screen.getByDisplayValue("Payer la facture")).toBeInTheDocument();
+    expect(screen.queryByText("Rappel renommé.")).not.toBeInTheDocument();
+
+    await user.clear(screen.getByDisplayValue("Payer la facture"));
+    await user.tab();
+    expect(screen.getByDisplayValue("Payer la facture")).toBeInTheDocument();
+    expect(screen.queryByText("Rappel renommé.")).not.toBeInTheDocument();
+  });
+
+  it("une tâche datée d'aujourd'hui dans la liste École apparaît dans Ma journée, Tous et École", async () => {
+    const user = userEvent.setup();
+    const ecole: ReminderList = { ...LIST, id: "list-ecole", name: "École", order: 1 };
+    await seed({
+      lists: [LIST, ecole],
+      items: [
+        makeReminder({
+          id: "r-ecole",
+          listId: ecole.id,
+          title: "Rendre le dossier",
+          dueDate: LOGICAL_DATE,
+        }),
+        makeReminder({ id: "r-perso", title: "Appeler maman", dueDate: null }),
+      ],
+    });
+
+    renderScreen();
+
+    // « Tous » est la vue par défaut : tout y est.
+    expect(screen.getByDisplayValue("Rendre le dossier")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Appeler maman")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "École" }));
+    expect(await screen.findByDisplayValue("Rendre le dossier")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Appeler maman")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Ma journée" }));
+    expect(await screen.findByDisplayValue("Rendre le dossier")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Appeler maman")).not.toBeInTheDocument();
+  });
+
+  it("crée un rappel avec une échéance et une liste depuis la saisie rapide", async () => {
+    const user = userEvent.setup();
+    const ecole: ReminderList = { ...LIST, id: "list-ecole", name: "École", order: 1 };
+    await seed({ lists: [LIST, ecole], items: [] });
+
+    renderScreen();
+
+    await user.type(screen.getByLabelText("Pour le"), "2026-10-30");
+    await user.selectOptions(screen.getByLabelText("Dans la liste"), "list-ecole");
+    await user.type(screen.getByLabelText("Titre du nouveau rappel"), "Réviser l'examen{enter}");
+
+    expect(await screen.findByDisplayValue("Réviser l'examen")).toBeInTheDocument();
+    expect(screen.getByText("ven. 30 oct.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "École" }));
+    expect(await screen.findByDisplayValue("Réviser l'examen")).toBeInTheDocument();
   });
 });
