@@ -1,6 +1,6 @@
 [package]
 name = "dayali"
-version = "0.1.0"
+version = "0.1.1"
 description = "Dayali — poste de pilotage personnel local-first"
 authors = ["Tiago"]
 edition = "2021"
