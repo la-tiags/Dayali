@@ -41,14 +41,63 @@ fn file_ref_from_bytes(
 
 /// Lit, parse et valide `config.json`. La révision est le SHA-256 exact des
 /// octets lus (pas d'un second passage disque).
+///
+/// Un fichier d'une version antérieure est **migré** : sauvegarde de l'original
+/// dans `.dayali/config.backup-v<ancienne>-<horodatage>.json`, puis réécriture
+/// atomique conditionnée au hash lu. Aucune migration n'a lieu si la validation
+/// échoue.
 pub fn read(root: &Path) -> Result<(Config, FileRef), DayaliError> {
+    read_with_migration(root, false)
+}
+
+fn read_with_migration(root: &Path, already_migrated: bool) -> Result<(Config, FileRef), DayaliError> {
     let resolved = paths::resolve_read(root, CONFIG_REL_PATH)?;
     let bytes = vault_fs::read_bytes_limited(&resolved.absolute, MAX_CONFIG_BYTES)?;
     let text = vault_fs::decode_utf8(&bytes, CONFIG_REL_PATH)?;
-    let config: Config = services::parse_json(&text, CONFIG_REL_PATH)?;
+    let mut value: Value = services::parse_json(&text, CONFIG_REL_PATH)?;
+
+    if let Some(report) = services::migrations::migrate_config(&mut value)? {
+        if already_migrated {
+            return Err(DayaliError::new(
+                ErrorCode::Conflict,
+                "config.json a changé pendant sa migration : recharge le vault.",
+            ));
+        }
+        migrate_config_file(root, &bytes, value, &report)?;
+        return read_with_migration(root, true);
+    }
+
+    let config: Config = services::parse_json_value(value, CONFIG_REL_PATH)?;
     config.validate()?;
     let file_ref = file_ref_from_bytes(&resolved, &bytes)?;
     Ok((config, file_ref))
+}
+
+/// Sauvegarde l'original puis écrit la configuration migrée, sans jamais
+/// écraser une modification concurrente (précondition = hash lu).
+fn migrate_config_file(
+    root: &Path,
+    original: &[u8],
+    value: Value,
+    report: &services::migrations::MigrationReport,
+) -> Result<(), DayaliError> {
+    let next: Config = services::parse_json_value(value, "config.json (migration)")?;
+    next.validate()?;
+    let migrated = next.to_json_bytes()?;
+
+    let stamp = Utc::now().format("%Y%m%dT%H%M%S%.3fZ");
+    let backup = format!(".dayali/config.backup-v{}-{stamp}.json", report.from);
+    atomic::write_vault_bytes(
+        root,
+        &backup,
+        original,
+        Some(&Precondition::must_not_exist()),
+        false,
+    )?;
+
+    let expected = Precondition::hash(hash::sha256_bytes(original));
+    atomic::write_vault_bytes(root, CONFIG_REL_PATH, &migrated, Some(&expected), false)?;
+    Ok(())
 }
 
 /// Copie de conflit interne la plus récente, si elle existe.
@@ -179,12 +228,38 @@ pub fn conflict_copy_path(machine_id: &str, at: DateTime<Utc>) -> String {
 mod tests {
     use super::*;
     use crate::models::common::nfc;
+    use crate::models::config::CONFIG_SCHEMA_VERSION;
+    use serde_json::json;
 
     fn vault() -> (tempfile::TempDir, std::path::PathBuf) {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_path_buf();
         std::fs::create_dir_all(root.join(".dayali")).unwrap();
         (dir, root)
+    }
+
+    /// Écrit une configuration v1 complète, avec `homeImage` imposé.
+    fn write_v1_config(root: &Path, home_image: serde_json::Value) -> serde_json::Value {
+        let mut value = serde_json::to_value(Config::default()).unwrap();
+        value["schemaVersion"] = json!(1);
+        value["appearance"]["homeImage"] = home_image;
+        std::fs::write(
+            root.join(CONFIG_REL_PATH),
+            serde_json::to_vec_pretty(&value).unwrap(),
+        )
+        .unwrap();
+        value
+    }
+
+    fn backups(root: &Path) -> Vec<String> {
+        let Ok(entries) = std::fs::read_dir(root.join(".dayali")) else {
+            return Vec::new();
+        };
+        entries
+            .filter_map(Result::ok)
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .filter(|name| name.starts_with("config.backup-v") && name.ends_with(".json"))
+            .collect()
     }
 
     #[test]
@@ -199,7 +274,7 @@ mod tests {
 
         let on_disk: Value =
             serde_json::from_slice(&std::fs::read(root.join(CONFIG_REL_PATH)).unwrap()).unwrap();
-        assert_eq!(on_disk["schemaVersion"], 1);
+        assert_eq!(on_disk["schemaVersion"], CONFIG_SCHEMA_VERSION);
         assert_eq!(on_disk["dayStartHour"], 4);
         assert_eq!(on_disk["dashboard"]["columns"], 12);
         assert_eq!(on_disk["views"], serde_json::json!([]));
@@ -229,7 +304,7 @@ mod tests {
         let (_dir, root) = vault();
         let path = root.join(CONFIG_REL_PATH);
         let mut value = serde_json::to_value(Config::default()).unwrap();
-        value["schemaVersion"] = serde_json::json!(2);
+        value["schemaVersion"] = serde_json::json!(CONFIG_SCHEMA_VERSION + 1);
         let bytes = serde_json::to_vec_pretty(&value).unwrap();
         std::fs::write(&path, &bytes).unwrap();
 
@@ -332,5 +407,99 @@ mod tests {
             ".dayali/config.conflict-0199a1b2-20261027T023000.000Z.json"
         );
         assert_eq!(nfc(&name), name);
+    }
+
+    #[test]
+    fn migrates_a_v1_unsplash_config_without_query_and_keeps_a_backup() {
+        let (_dir, root) = vault();
+        let original = write_v1_config(
+            &root,
+            json!({ "mode": "unsplash", "unsplashQuery": null, "showCredit": true, "dim": 0.35 }),
+        );
+
+        let (config, _) = read(&root).unwrap();
+        assert_eq!(config.schema_version, CONFIG_SCHEMA_VERSION);
+        assert_eq!(
+            config.appearance.home_image.mode,
+            crate::models::config::HomeImageMode::Unsplash
+        );
+        assert_eq!(config.appearance.home_image.unsplash_query, None);
+
+        let on_disk: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join(CONFIG_REL_PATH)).unwrap()).unwrap();
+        assert_eq!(on_disk["schemaVersion"], CONFIG_SCHEMA_VERSION);
+
+        let saved = backups(&root);
+        assert_eq!(saved.len(), 1, "une sauvegarde v1 doit être conservée");
+        let backup: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(root.join(".dayali").join(&saved[0])).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(backup, original);
+
+        // Deuxième lecture : plus aucune migration ni sauvegarde supplémentaire.
+        read(&root).unwrap();
+        assert_eq!(backups(&root).len(), 1);
+    }
+
+    #[test]
+    fn migrates_the_legacy_photo_id_hack_to_the_default_query() {
+        let (_dir, root) = vault();
+        write_v1_config(
+            &root,
+            json!({
+                "mode": "unsplash",
+                "unsplashQuery": "1511497584788-87676104235f",
+                "showCredit": true,
+                "dim": 0.35
+            }),
+        );
+
+        let (config, _) = read(&root).unwrap();
+        assert_eq!(config.appearance.home_image.unsplash_query, None);
+    }
+
+    #[test]
+    fn a_failed_validation_after_migration_writes_nothing() {
+        let (_dir, root) = vault();
+        write_v1_config(
+            &root,
+            json!({ "mode": "unsplash", "unsplashQuery": null, "showCredit": true, "dim": 9.0 }),
+        );
+        let before = std::fs::read(root.join(CONFIG_REL_PATH)).unwrap();
+
+        let error = read(&root).unwrap_err();
+        assert_eq!(error.code, ErrorCode::SchemaInvalid);
+        assert_eq!(std::fs::read(root.join(CONFIG_REL_PATH)).unwrap(), before);
+        assert!(backups(&root).is_empty());
+    }
+
+    #[test]
+    fn a_future_schema_version_is_refused_and_left_untouched() {
+        let (_dir, root) = vault();
+        let mut value = serde_json::to_value(Config::default()).unwrap();
+        value["schemaVersion"] = json!(CONFIG_SCHEMA_VERSION + 1);
+        let before = serde_json::to_vec_pretty(&value).unwrap();
+        std::fs::write(root.join(CONFIG_REL_PATH), &before).unwrap();
+
+        let error = read(&root).unwrap_err();
+        assert_eq!(error.code, ErrorCode::SchemaInvalid);
+        assert!(error.message.contains("plus récente"));
+        assert_eq!(std::fs::read(root.join(CONFIG_REL_PATH)).unwrap(), before);
+        assert!(backups(&root).is_empty());
+    }
+
+    #[test]
+    fn patch_can_enable_unsplash_without_a_query() {
+        let (_dir, root) = vault();
+        let created = create_defaults(&root).unwrap();
+        let config_patch = json!({ "appearance": { "homeImage": { "mode": "unsplash" } } });
+
+        let updated = patch(&root, &config_patch, &created.revision).unwrap();
+        assert_eq!(
+            updated.config.appearance.home_image.mode,
+            crate::models::config::HomeImageMode::Unsplash
+        );
+        assert_eq!(updated.config.appearance.home_image.unsplash_query, None);
     }
 }

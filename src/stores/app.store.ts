@@ -60,6 +60,8 @@ export interface AppState {
   createVault: (parentPath: string, name: string) => Promise<boolean>;
   closeVault: () => Promise<void>;
   startDay: (at?: Date) => Promise<boolean>;
+  /** Relit l'état de journée (restes à traiter) après une décision de report. */
+  refreshDayState: () => Promise<void>;
   setOpenDashboardOnLaunch: (value: boolean) => Promise<boolean>;
   patchConfig: (
     patch: import("../lib/contracts/types").DeepPartial<import("../lib/contracts/types").Config>,
@@ -492,6 +494,15 @@ export const useAppStore = create<AppState>()((set, get) => ({
     } catch (error) {
       set({ busy: false, error: normalizeIpcError(error) });
       return false;
+    }
+  },
+
+  async refreshDayState() {
+    if (!get().vault) return;
+    try {
+      set({ dayState: await getIpc().dayStateGet() });
+    } catch (error) {
+      set({ error: normalizeIpcError(error) });
     }
   },
 

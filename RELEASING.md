@@ -57,6 +57,27 @@ Le workflow échoue tôt, avec un message explicite, si :
 - le tag ne correspond pas à la version de l'app (`pnpm release:check v0.2.0` le vérifie en local) ;
 - le secret `TAURI_SIGNING_PRIVATE_KEY` est absent.
 
+## Clé Unsplash de l'application (photo d'accueil en ligne)
+
+La clé Unsplash est **celle de l'application** : l'utilisateur n'en saisit jamais. Le dépôt étant public,
+elle n'y figure pas ; elle est injectée uniquement au moment de la compilation par le workflow :
+
+```sh
+gh secret set UNSPLASH_ACCESS_KEY -R la-tiags/Dayali
+# colle l'Access Key Unsplash (Client-ID) quand le prompt le demande
+```
+
+- Le secret est **obligatoire** : sans lui, le workflow échoue avant le build (comme pour la clé de
+  signature), pour qu'aucune release ne parte sans photo Unsplash.
+- La clé est compilée dans le binaire (`src-tauri/build.rs` → `cargo:rustc-env`) : elle n'apparaît ni dans le
+  dépôt, ni dans les logs, ni dans l'UI. Elle reste toutefois extractible d'un binaire distribué par une
+  personne motivée — c'est le compromis assumé du modèle sans serveur.
+- Toute la flotte partage le quota de l'application (1 000 req/h en production : à demander à Unsplash
+  quand l'app sera publique, le mode démo est limité à 50 req/h). À raison d'une requête par jour et par
+  utilisateur, cela couvre un très grand nombre d'installations.
+- En développement, mets `UNSPLASH_ACCESS_KEY=ta-clé` dans un fichier `.env` à la racine (ignoré par git)
+  puis relance `pnpm tauri dev` ; sans clé, l'app garde simplement les photos embarquées.
+
 ## À savoir
 
 - **Version identique = pas de mise à jour.** L'app compare sa version à celle de `latest.json` (semver).

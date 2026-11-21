@@ -1,6 +1,6 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MOCK_DEFAULT_CONFIG } from "../src/lib/contracts/defaults";
 import type { LocalCalendarEvent, MachineLocal, Reminder } from "../src/lib/contracts/types";
 import { configureIpc } from "../src/lib/ipc";
@@ -65,6 +65,10 @@ function localEvent(overrides: Partial<LocalCalendarEvent> = {}): LocalCalendarE
     ...overrides,
   };
 }
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("parcours complet de l'étape (a)", () => {
   it("choisit un vault, démarre la journée avec Entrée, puis revient à l'accueil", async () => {
@@ -228,6 +232,49 @@ describe("parcours complet de l'étape (a)", () => {
     expect(within(section).queryByText("Préparer la réunion")).not.toBeInTheDocument();
     expect(useAppStore.getState().dayState?.carryOverCandidates).toHaveLength(1);
     expect(screen.queryByTestId("carry-over-warnings")).not.toBeInTheDocument();
+  });
+
+  it("replanifie un reste de la veille pour aujourd'hui depuis l'accueil", async () => {
+    // Même instant pour l'horloge de l'app et celle du mock, comme en production.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-28T09:00:00.000Z"));
+    const user = userEvent.setup();
+    const base = createMockIpc({
+      now: () => new Date("2026-10-28T09:00:00.000Z"),
+      timeZone: "UTC",
+      machineLocal: machineLocal({ lastVaultPath: VAULT, recentVaults: [VAULT] }),
+      moduleData: {
+        reminders: [
+          reminder({ id: "carry-open", title: "Ranger le bureau", dueDate: "2026-10-27" }),
+          reminder({ id: "carry-drop", title: "Ancienne idée", dueDate: "2026-10-26" }),
+        ],
+      },
+    });
+    configureIpc({
+      ...base,
+      dayStart: (input) => base.dayStart({ ...input, at: "2026-10-28T09:00:00.000Z" }),
+    });
+
+    renderApp(["/"]);
+    await user.click(await screen.findByRole("button", { name: "Démarrer la journée" }));
+
+    const section = await screen.findByRole("region", { name: "Report de la veille" });
+    await user.click(
+      within(section).getByRole("button", { name: "Replanifier aujourd'hui : Ranger le bureau" }),
+    );
+
+    // Le reste quitte le report et rejoint les rappels du jour.
+    const today = await screen.findByRole("region", { name: "Rappels du jour" });
+    expect(await within(today).findByText("Ranger le bureau")).toBeInTheDocument();
+    const remaining = screen.getByRole("region", { name: "Report de la veille" });
+    expect(within(remaining).queryByText("Ranger le bureau")).not.toBeInTheDocument();
+    expect(within(remaining).getByText("Ancienne idée")).toBeInTheDocument();
+
+    // Abandonner le dernier reste fait disparaître toute la section.
+    await user.click(within(remaining).getByRole("button", { name: "Abandonner : Ancienne idée" }));
+    await screen.findByRole("heading", { name: "Rappels du jour" });
+    expect(screen.queryByRole("region", { name: "Report de la veille" })).not.toBeInTheDocument();
+    expect(useAppStore.getState().dayState?.carryOverCandidates).toHaveLength(0);
   });
 
   it("affiche un avertissement de rappel illisible injecté par le mock sans bloquer l'accueil", async () => {

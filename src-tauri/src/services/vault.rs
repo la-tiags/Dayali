@@ -605,7 +605,8 @@ mod tests {
         std::fs::create_dir_all(vault_path.join(".dayali")).unwrap();
         let config_path = vault_path.join(".dayali/config.json");
         let mut value = serde_json::to_value(crate::models::config::Config::default()).unwrap();
-        value["schemaVersion"] = serde_json::json!(2);
+        value["schemaVersion"] =
+            serde_json::json!(crate::models::config::CONFIG_SCHEMA_VERSION + 1);
         let bytes = serde_json::to_vec_pretty(&value).unwrap();
         std::fs::write(&config_path, &bytes).unwrap();
 

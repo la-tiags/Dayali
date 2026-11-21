@@ -1,19 +1,7 @@
-/* Pas d'animation d'opacité : partir de 60 % sur un fond quasi noir se voit comme un écran noir. */
-@keyframes dashboardEnter {
-  from {
-    transform: translateY(6px);
-  }
-
-  to {
-    transform: translateY(0);
-  }
-}
-
 .screen {
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  animation: dashboardEnter 240ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .header {

@@ -74,6 +74,22 @@ Valeurs brutes : `LicenseShortName=CC0`, `License=cc0`,
 - **Page de licence** : <https://creativecommons.org/publicdomain/zero/1.0/deed.en>
 - **Vérification** : 8 novembre 2026
 
+## Mode en ligne optionnel (Unsplash)
+
+Désactivé par défaut, réglable dans les Réglages. La clé Unsplash est celle de
+l'application : compilée dans le binaire depuis un secret CI
+(`src-tauri/build.rs`), jamais dans le dépôt, et l'utilisateur n'a rien à
+saisir ni à choisir. Fournisseur unique pour l'instant (Unsplash).
+
+- L'image Unsplash est **hotlinkée** (`images.unsplash.com`, aucun octet copié
+  localement) ; seules les métadonnées (id, URL, crédit) sont mémorisées.
+- L'historique d'ids empêche de revoir la même photo ; la photo reste stable
+  pendant toute la journée logique.
+- L'appel `download_location` est déclenché une fois par photo retenue, et les
+  liens photographe/Unsplash portent `utm_source=dayali&utm_medium=referral`.
+- Hors ligne, sans clé, en cas de quota ou d'échec réseau, les quatre photos
+  CC0 ci-dessus reprennent automatiquement.
+
 ## Règles
 
 - Ne jamais référencer une URL distante par défaut et ne jamais afficher un

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { type ReactNode, useMemo } from "react";
 import { Button } from "../../components/ui/Button";
 import { compareAgendaItems, eventsOnDate } from "../../lib/agenda";
 import type { CalendarItem, Reminder } from "../../lib/contracts/types";
@@ -12,6 +12,7 @@ import {
   parseZonedDateTime,
 } from "../../lib/time";
 import { keyWarnings } from "../../lib/warnings";
+import { CarryOverActions, type CarryOverDecision } from "./CarryOverActions";
 import styles from "./TodayScreen.module.css";
 
 export interface DayPreviewProps {
@@ -30,6 +31,10 @@ export interface DayPreviewProps {
   agendaWarnings: readonly string[];
   carryOvers: readonly Reminder[];
   carryOverWarnings: readonly string[];
+  /** Replanifie ou abandonne un reste de la veille ; sans lui, la liste est en lecture seule. */
+  onResolveCarryOver?:
+    | ((reminder: Reminder, decision: CarryOverDecision) => Promise<void>)
+    | undefined;
   onRetryReminders: () => void;
   onRetryAgenda: () => void;
   onOpenDashboard: () => void;
@@ -67,12 +72,14 @@ function ReminderLine({
   timeZone,
   logicalDate,
   now,
+  actions,
 }: {
   reminder: Reminder;
   locale: string;
   timeZone: string;
   logicalDate: string;
   now?: Date | undefined;
+  actions?: ReactNode;
 }) {
   return (
     <li className={styles.reminder}>
@@ -81,6 +88,7 @@ function ReminderLine({
       {isOverdue(reminder, logicalDate, now, timeZone) ? (
         <span className={styles.overdueBadge}>En retard</span>
       ) : null}
+      {actions}
     </li>
   );
 }
@@ -106,6 +114,7 @@ export function DayPreview({
   agendaWarnings,
   carryOvers,
   carryOverWarnings,
+  onResolveCarryOver,
   onRetryReminders,
   onRetryAgenda,
   onOpenDashboard,
@@ -156,6 +165,41 @@ export function DayPreview({
             ))}
           </ul>
         </div>
+      ) : null}
+
+      {visibleCarryOvers.length > 0 ? (
+        <section className={styles.panel} aria-labelledby="preview-carry-title">
+          <h2 className={styles.panelTitle} id="preview-carry-title">
+            Report de la veille
+          </h2>
+          {onResolveCarryOver ? (
+            <p className={styles.carryIntro}>
+              Ces tâches n'ont pas été traitées : replanifiez-les pour aujourd'hui, demain ou plus
+              tard dans la semaine.
+            </p>
+          ) : null}
+          <ul className={styles.reminderList}>
+            {visibleCarryOvers.map((reminder) => (
+              <ReminderLine
+                key={reminder.id}
+                reminder={reminder}
+                locale={locale}
+                timeZone={timeZone}
+                logicalDate={logicalDate}
+                now={now}
+                actions={
+                  onResolveCarryOver ? (
+                    <CarryOverActions
+                      reminder={reminder}
+                      logicalDate={logicalDate}
+                      onResolve={onResolveCarryOver}
+                    />
+                  ) : undefined
+                }
+              />
+            ))}
+          </ul>
+        </section>
       ) : null}
 
       <div className={styles.previewGrid}>
@@ -251,26 +295,6 @@ export function DayPreview({
           ) : null}
         </section>
       </div>
-
-      {visibleCarryOvers.length > 0 ? (
-        <section className={styles.panel} aria-labelledby="preview-carry-title">
-          <h2 className={styles.panelTitle} id="preview-carry-title">
-            Report de la veille
-          </h2>
-          <ul className={styles.reminderList}>
-            {visibleCarryOvers.map((reminder) => (
-              <ReminderLine
-                key={reminder.id}
-                reminder={reminder}
-                locale={locale}
-                timeZone={timeZone}
-                logicalDate={logicalDate}
-                now={now}
-              />
-            ))}
-          </ul>
-        </section>
-      ) : null}
 
       <footer className={styles.previewFooter}>
         <Button variant="primary" onClick={onOpenDashboard}>

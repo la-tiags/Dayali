@@ -104,23 +104,26 @@ export function healLayout(widgets: readonly WidgetPlacement[]): WidgetPlacement
 }
 
 /**
- * Applique une modification utilisateur : le widget `anchorId` garde sa place et les autres
- * sont repoussés vers le bas s'ils le gênent (comme une grille de dashboard classique).
+ * Réorganise automatiquement : le widget `anchorId` (celui que l'utilisateur
+ * déplace ou redimensionne) garde sa place, tous les autres remontent au plus
+ * haut (gravité) en contournant les widgets déjà posés. Sans ancre, tout le
+ * monde remonte, y compris le widget qu'on vient de lâcher. Aucun trou, aucun
+ * chevauchement, et l'utilisateur n'a jamais à penser à la grille.
  */
-export function resolveLayout(
+export function compactLayout(
   widgets: readonly WidgetPlacement[],
   anchorId?: string,
 ): WidgetPlacement[] {
   const clamped = widgets.map((widget) => ({ ...widget, layout: clampLayout(widget.layout) }));
-  const ordered = [...clamped].sort((a, b) => {
-    if (a.id === anchorId) return -1;
-    if (b.id === anchorId) return 1;
-    return byPosition(a, b);
-  });
   const placed = new Map<string, WidgetPlacement>();
   const occupied: WidgetLayout[] = [];
-  for (const widget of ordered) {
-    let y = widget.layout.y;
+  const anchor = anchorId ? clamped.find((widget) => widget.id === anchorId) : undefined;
+  if (anchor) {
+    occupied.push(anchor.layout);
+    placed.set(anchor.id, anchor);
+  }
+  for (const widget of clamped.filter((candidate) => candidate !== anchor).sort(byPosition)) {
+    let y = 0;
     for (;;) {
       const candidate = { ...widget.layout, y };
       const blocker = occupied.find((other) => overlaps(other, candidate));
@@ -132,6 +135,14 @@ export function resolveLayout(
     placed.set(widget.id, { ...widget, layout });
   }
   return restoreOrder(widgets, placed);
+}
+
+/** Applique une modification utilisateur (voir `compactLayout`). */
+export function resolveLayout(
+  widgets: readonly WidgetPlacement[],
+  anchorId?: string,
+): WidgetPlacement[] {
+  return compactLayout(widgets, anchorId);
 }
 
 /** Nouvelle disposition après redimensionnement de `id` (les voisins gênés descendent). */
@@ -170,4 +181,120 @@ export function applyPosition(
     widget.id === id ? { ...widget, layout: clampLayout({ ...widget.layout, x, y }) } : widget,
   );
   return resolveLayout(healed, id);
+}
+
+// ── Rendu responsive et conversions pixel ↔ cellule ───────────────────────────
+
+/** Espace entre deux widgets, en pixels (horizontal et vertical). */
+export const GRID_GAP = 16;
+/** En dessous de ces largeurs de conteneur, le dashboard passe à 6 puis 1 colonne. */
+const SIX_COLUMNS_MIN_WIDTH = 520;
+const TWELVE_COLUMNS_MIN_WIDTH = 820;
+
+/** Nombre de colonnes affichées selon la largeur réellement disponible. */
+export function columnsForWidth(width: number): 1 | 6 | 12 {
+  if (width >= TWELVE_COLUMNS_MIN_WIDTH) return 12;
+  if (width >= SIX_COLUMNS_MIN_WIDTH) return 6;
+  return 1;
+}
+
+/**
+ * Projette la disposition (stockée sur 12 colonnes) sur moins de colonnes pour
+ * les fenêtres étroites : proportions conservées, ordre de lecture conservé,
+ * puis compaction. Purement visuel : rien n'est réécrit dans le vault.
+ */
+export function projectToColumns(
+  widgets: readonly WidgetPlacement[],
+  columns: 1 | 6 | 12,
+): WidgetPlacement[] {
+  if (columns === GRID_COLUMNS) return [...widgets];
+  const ratio = columns / GRID_COLUMNS;
+  const reading = [...widgets].sort(byPosition).map((widget) => {
+    const w =
+      columns === 1 ? 1 : Math.min(columns, Math.max(2, Math.ceil(widget.layout.w * ratio)));
+    const x = columns === 1 ? 0 : Math.min(columns - w, Math.floor(widget.layout.x * ratio));
+    return { ...widget, layout: { x, y: widget.layout.y, w, h: widget.layout.h } };
+  });
+  const flowed = compactLayoutFor(reading, columns);
+  const byId = new Map(flowed.map((widget) => [widget.id, widget]));
+  return widgets.map((widget) => byId.get(widget.id) ?? widget);
+}
+
+/** Compaction sur `columns` colonnes (les bornes de clamp sont celles de 12 colonnes). */
+function compactLayoutFor(widgets: readonly WidgetPlacement[], columns: number): WidgetPlacement[] {
+  const placed = new Map<string, WidgetPlacement>();
+  const occupied: WidgetLayout[] = [];
+  for (const widget of widgets) {
+    const w = Math.min(widget.layout.w, columns);
+    let y = 0;
+    for (;;) {
+      const candidate = { ...widget.layout, w, x: Math.min(widget.layout.x, columns - w), y };
+      const blocker = occupied.find((other) => overlaps(other, candidate));
+      if (!blocker) {
+        occupied.push(candidate);
+        placed.set(widget.id, { ...widget, layout: candidate });
+        break;
+      }
+      y = blocker.y + blocker.h;
+    }
+  }
+  return widgets.map((widget) => placed.get(widget.id) ?? widget);
+}
+
+export interface GridMetrics {
+  readonly columns: number;
+  /** Largeur d'une colonne, en pixels. */
+  readonly columnWidth: number;
+  /** Pas horizontal (colonne + espace) et vertical (ligne + espace). */
+  readonly stepX: number;
+  readonly stepY: number;
+}
+
+export function gridMetrics(width: number, columns: number, rowHeight: number): GridMetrics {
+  const columnWidth = Math.max(1, (width - GRID_GAP * (columns - 1)) / columns);
+  return { columns, columnWidth, stepX: columnWidth + GRID_GAP, stepY: rowHeight + GRID_GAP };
+}
+
+export interface PixelRect {
+  readonly left: number;
+  readonly top: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/** Rectangle en pixels d'un placement dans le conteneur. */
+export function layoutToPixels(layout: WidgetLayout, metrics: GridMetrics): PixelRect {
+  return {
+    left: layout.x * metrics.stepX,
+    top: layout.y * metrics.stepY,
+    width: layout.w * metrics.stepX - GRID_GAP,
+    height: layout.h * metrics.stepY - GRID_GAP,
+  };
+}
+
+/** Hauteur du conteneur : le bas du widget le plus bas (au moins une ligne). */
+export function boardHeight(widgets: readonly WidgetPlacement[], metrics: GridMetrics): number {
+  const rows = widgets.reduce((max, widget) => Math.max(max, widget.layout.y + widget.layout.h), 1);
+  return rows * metrics.stepY - GRID_GAP;
+}
+
+/** Cellule la plus proche d'une position en pixels (le coin haut-gauche d'un widget). */
+export function pixelsToCell(
+  left: number,
+  top: number,
+  metrics: GridMetrics,
+): { x: number; y: number } {
+  return { x: Math.round(left / metrics.stepX), y: Math.round(top / metrics.stepY) };
+}
+
+/** Taille en cellules la plus proche d'une taille en pixels. */
+export function pixelsToSize(
+  width: number,
+  height: number,
+  metrics: GridMetrics,
+): { w: number; h: number } {
+  return {
+    w: Math.round((width + GRID_GAP) / metrics.stepX),
+    h: Math.round((height + GRID_GAP) / metrics.stepY),
+  };
 }

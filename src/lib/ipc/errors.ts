@@ -19,6 +19,9 @@ export type ErrorCode =
   | "E_LOCK_TIMEOUT"
   | "E_PATH_ESCAPE"
   | "E_UNSUPPORTED"
+  | "E_UNAUTHORIZED"
+  | "E_NETWORK"
+  | "E_RATE_LIMITED"
   | "E_TAURI"
   | "E_INTERNAL";
 
@@ -43,6 +46,9 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "E_LOCK_TIMEOUT",
   "E_PATH_ESCAPE",
   "E_UNSUPPORTED",
+  "E_UNAUTHORIZED",
+  "E_NETWORK",
+  "E_RATE_LIMITED",
   "E_TAURI",
   "E_INTERNAL",
 ];
@@ -61,6 +67,9 @@ export const ERROR_MESSAGES: Readonly<Record<ErrorCode, string>> = {
   E_LOCK_TIMEOUT: "Le fichier est utilisé par une autre opération.",
   E_PATH_ESCAPE: "Chemin refusé : il sort du vault.",
   E_UNSUPPORTED: "Cette opération n'est pas prise en charge.",
+  E_UNAUTHORIZED: "La clé Unsplash est refusée ou absente.",
+  E_NETWORK: "Service en ligne injoignable.",
+  E_RATE_LIMITED: "Quota du service en ligne atteint.",
   E_TAURI: "Communication impossible avec l'application.",
   E_INTERNAL: "Erreur interne de l'application.",
 };

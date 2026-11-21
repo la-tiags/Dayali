@@ -8,6 +8,7 @@ pub mod app;
 pub mod calendar;
 pub mod config;
 pub mod day;
+pub mod home_photo;
 pub mod machine;
 pub mod reminder;
 pub mod vault;

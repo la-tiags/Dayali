@@ -101,6 +101,23 @@ export interface ReminderListDeleteInput {
   readonly expected: Sha256;
 }
 
+/** Métadonnées d'une photo Unsplash : jamais de clé ni d'octets d'image. */
+export interface HomePhoto {
+  readonly id: string;
+  readonly src: string;
+  readonly credit: string;
+  readonly username: string;
+  readonly source: string;
+  readonly license: string;
+  readonly licenseUrl: string;
+  readonly title?: string;
+}
+
+export interface HomePhotoInput {
+  readonly logicalDate: LocalDate;
+  readonly query: string | null;
+}
+
 export interface IpcApi {
   vaultOpen(input: VaultOpenInput): Promise<VaultInfo>;
   /** Crée `<parentPath>/<name>/` puis son `.dayali/`, sans jamais écraser l'existant. */
@@ -135,4 +152,8 @@ export interface IpcApi {
   reminderListDelete(input: ReminderListDeleteInput): Promise<void>;
   /** Journalise puis applique une décision de report, de replanification, abandon ou restauration. */
   reminderReport(input: ReminderReportInput): Promise<Reminder>;
+
+  // Photo d'accueil Unsplash (mode en ligne optionnel). La clé de l'app reste en Rust.
+  /** `null` sans clé ; l'UI garde alors la photo Wikimedia embarquée. */
+  homePhotoUnsplash(input: HomePhotoInput): Promise<HomePhoto | null>;
 }

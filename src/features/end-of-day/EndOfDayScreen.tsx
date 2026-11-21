@@ -13,6 +13,7 @@ import {
 } from "../../lib/contracts/end-of-day-draft";
 import type { CalendarListResult, LocalDate, Reminder } from "../../lib/contracts/types";
 import { dayOfYear, formatLocalDate, logicalDay } from "../../lib/day";
+import { readCachedHomePhoto } from "../../lib/home-photos";
 import { getIpc } from "../../lib/ipc";
 import { normalizeIpcError, userMessage } from "../../lib/ipc/errors";
 import { formatLocalDateLong, resolveTimeZone, systemTimeZone } from "../../lib/time";
@@ -106,7 +107,9 @@ export function EndOfDayScreen({
 
   const daySeed = dayOfYear(effectiveNow, timeZone);
   const bundledPhoto = photoOfTheDay(daySeed);
-  const backgroundStyle = { backgroundImage: `url(${JSON.stringify(bundledPhoto.src)})` };
+  const cachedPhoto = readCachedHomePhoto(logicalDate);
+  const photoSrc = cachedPhoto?.src ?? bundledPhoto.src;
+  const backgroundStyle = { backgroundImage: `url(${JSON.stringify(photoSrc)})` };
 
   const vaultRoot = vault?.root ?? "default-vault";
   const tomorrow = addDays(logicalDate, 1);

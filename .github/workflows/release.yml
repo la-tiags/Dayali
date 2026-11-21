@@ -87,6 +87,17 @@ jobs:
             exit 1
           fi
 
+      # 4 ter. Clé Unsplash de l'application (obligatoire) : jamais dans le dépôt, injectée à la compilation.
+      - name: Check Unsplash key
+        shell: bash
+        env:
+          UNSPLASH_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
+        run: |
+          if [ -z "$UNSPLASH_KEY" ]; then
+            echo "::error::Secret UNSPLASH_ACCESS_KEY manquant : voir RELEASING.md"
+            exit 1
+          fi
+
       # 5. Build Tauri + upload sur la Release GitHub (+ latest.json lu par les apps installées)
       - name: Build and release
         uses: tauri-apps/tauri-action@v0
@@ -95,6 +106,8 @@ jobs:
           # Clé de signature pour les mises à jour automatiques
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Clé Unsplash de l'application : compilée dans le binaire, jamais dans le dépôt
+          UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Dayali ${{ github.ref_name }}"

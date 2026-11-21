@@ -1,9 +1,20 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router";
 import { photoOfTheDay } from "../assets/home/photos";
 import { StatusBanners } from "../components/ui/StatusBanners";
+import type { CarryOverDecision } from "../features/today/CarryOverActions";
 import { TodayScreen } from "../features/today/TodayScreen";
+import { addDays } from "../lib/agenda";
+import type { Reminder } from "../lib/contracts/types";
 import { dayOfYear, formatLocalDate, isDayStarted, logicalDay } from "../lib/day";
+import {
+  clearCachedHomePhoto,
+  type HomePhoto,
+  loadDailyHomePhoto,
+  preloadImage,
+  readCachedHomePhoto,
+} from "../lib/home-photos";
+import { getIpc } from "../lib/ipc";
 import { filterForMaJournee } from "../lib/reminders";
 import { resolveTimeZone, systemTimeZone } from "../lib/time";
 import { useClock } from "../lib/useClock";
@@ -28,6 +39,7 @@ export function TodayRoute() {
   const startDay = useAppStore((state) => state.startDay);
   const loadReminders = useAppStore((state) => state.loadReminders);
   const loadAgenda = useAppStore((state) => state.loadAgenda);
+  const refreshDayState = useAppStore((state) => state.refreshDayState);
   const markLateNightShown = useAppStore((state) => state.markLateNightShown);
   const reloadConfig = useAppStore((state) => state.reloadConfig);
   const dismissError = useAppStore((state) => state.dismissError);
@@ -39,8 +51,51 @@ export function TodayRoute() {
   const startedToday =
     config && dayState ? isDayStarted(dayState, now, config.dayStartHour, timeZone) : false;
 
+  const homeImageMode = config?.appearance.homeImage?.mode ?? "unsplash";
+  const homeImageQuery = config?.appearance.homeImage?.unsplashQuery ?? null;
+  const [onlinePhoto, setOnlinePhoto] = useState<HomePhoto | null>(() =>
+    logicalDate ? readCachedHomePhoto(logicalDate) : null,
+  );
+
+  /**
+   * Photo Unsplash du jour : métadonnées mises en cache par journée logique pour
+   * rester stables, jamais d'octets d'image. Hors ligne ou sans clé, on garde la
+   * photo Wikimedia embarquée (aucun écran vide).
+   */
+  useEffect(() => {
+    if (homeImageMode !== "unsplash" || !logicalDate) {
+      setOnlinePhoto(null);
+      return;
+    }
+    let cancelled = false;
+    const cached = readCachedHomePhoto(logicalDate);
+    if (cached) {
+      setOnlinePhoto(cached);
+      void preloadImage(cached.src).then((ok) => {
+        if (cancelled) return;
+        if (!ok) {
+          clearCachedHomePhoto(logicalDate);
+          setOnlinePhoto(null);
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+    setOnlinePhoto(null);
+    void loadDailyHomePhoto({ logicalDate, query: homeImageQuery }).then((photo) => {
+      if (!photo || cancelled) return;
+      void preloadImage(photo.src).then((ok) => {
+        if (ok && !cancelled) setOnlinePhoto(photo);
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [homeImageMode, homeImageQuery, logicalDate]);
+
   const goDashboard = useCallback(() => {
-    navigate("/dashboard", { viewTransition: true });
+    navigate("/dashboard");
   }, [navigate]);
 
   const reviewHomeRequested =
@@ -72,6 +127,29 @@ export function TodayRoute() {
     void loadReminders(filterForMaJournee());
     if (logicalDate) void loadAgenda({ from: logicalDate, to: logicalDate });
   }, [loadAgenda, loadReminders, logicalDate]);
+
+  /**
+   * Reste d'une journée non fermée : même décision que l'écran de fin
+   * (`reminderReport`), avec la veille comme `sourceDay`. L'état de journée et
+   * les rappels du jour sont relus ensuite pour que la liste reste exacte.
+   */
+  const handleResolveCarryOver = useCallback(
+    async (reminder: Reminder, decision: CarryOverDecision) => {
+      if (!logicalDate) return;
+      const ref = await getIpc().reminderFileRef({ id: reminder.id });
+      await getIpc().reminderReport({
+        reminderId: reminder.id,
+        action: decision.action,
+        ...(decision.action === "replan" ? { newDueDate: decision.newDueDate } : {}),
+        expected: ref.hash,
+        sourceDay: addDays(logicalDate, -1),
+        logicalDay: logicalDate,
+      });
+      await refreshDayState();
+      await loadReminders(filterForMaJournee());
+    },
+    [loadReminders, logicalDate, refreshDayState],
+  );
 
   const handleRetryReminders = useCallback(() => {
     void loadReminders(filterForMaJournee());
@@ -123,27 +201,25 @@ export function TodayRoute() {
     return <Navigate to="/dashboard" replace />;
   }
 
-  const homeImageConfig = config.appearance.homeImage;
   const daySeed = dayOfYear(now, timeZone);
   const bundledPhoto = photoOfTheDay(daySeed);
 
-  let resolvedPhoto = {
-    src: bundledPhoto.src,
-    credit: bundledPhoto.credit,
-    license: bundledPhoto.license,
-    source: bundledPhoto.source,
-    licenseUrl: bundledPhoto.licenseUrl,
-  };
-
-  if (homeImageConfig?.mode === "unsplash" && homeImageConfig.unsplashQuery) {
-    resolvedPhoto = {
-      src: `https://images.unsplash.com/photo-${homeImageConfig.unsplashQuery}?auto=format&fit=crop&w=2400&q=80`,
-      credit: "Unsplash",
-      license: "Unsplash License",
-      source: "https://unsplash.com",
-      licenseUrl: "https://unsplash.com/license",
-    };
-  }
+  const resolvedPhoto = onlinePhoto
+    ? {
+        src: onlinePhoto.src,
+        credit: onlinePhoto.credit,
+        license: onlinePhoto.license,
+        source: onlinePhoto.source,
+        licenseUrl: onlinePhoto.licenseUrl,
+        provider: "unsplash" as const,
+      }
+    : {
+        src: bundledPhoto.src,
+        credit: bundledPhoto.credit,
+        license: bundledPhoto.license,
+        source: bundledPhoto.source,
+        licenseUrl: bundledPhoto.licenseUrl,
+      };
 
   return (
     <TodayScreen
@@ -170,6 +246,7 @@ export function TodayRoute() {
       onRetryAgenda={handleRetryAgenda}
       carryOvers={dayState.carryOverCandidates}
       carryOverWarnings={dayState.carryOverWarnings}
+      onResolveCarryOver={handleResolveCarryOver}
       onOpenDashboard={goDashboard}
       banners={banners}
       lateNightEnabled={config.notifications?.lateNight?.enabled ?? true}

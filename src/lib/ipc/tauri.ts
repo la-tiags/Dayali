@@ -18,6 +18,7 @@ import type {
   CalendarListInput,
   CalendarSaveInput,
   ConfigPatchInput,
+  HomePhoto,
   IpcApi,
   ReminderDeleteInput,
   ReminderFileRefInput,
@@ -100,4 +101,6 @@ export const tauriIpc: IpcApi = {
       sourceDay: input.sourceDay,
       logicalDay: input.logicalDay,
     }),
+
+  homePhotoUnsplash: (input) => invoke<HomePhoto | null>("home_photo_unsplash", { input }),
 };

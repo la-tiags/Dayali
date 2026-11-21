@@ -97,6 +97,7 @@ fn bootstrap(app: &tauri::AppHandle) -> Result<AppState, DayaliError> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
@@ -129,6 +130,7 @@ pub fn run() {
             commands::reminder::reminder_list_save,
             commands::reminder::reminder_list_delete,
             commands::reminder::reminder_report,
+            commands::home_photo::home_photo_unsplash,
             commands::app::app_paths,
             commands::app::app_version,
         ])

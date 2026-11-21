@@ -477,3 +477,91 @@ describe("TodayScreen — état aperçu", () => {
     expect(item?.textContent).not.toContain("Europe/Paris");
   });
 });
+
+describe("TodayScreen — reste d'une journée non fermée", () => {
+  const leftover = () =>
+    reminder({
+      id: "r-left",
+      title: "Appeler le garage",
+      dueDate: "2026-10-25",
+      dueTime: null,
+      dueTimeZone: null,
+    });
+
+  function renderPreview(onResolveCarryOver = vi.fn().mockResolvedValue(undefined)) {
+    renderToday({
+      initialPhase: "preview",
+      remindersStatus: "ready",
+      carryOvers: [leftover()],
+      onResolveCarryOver,
+    });
+    return onResolveCarryOver;
+  }
+
+  it("affiche le report avant le résumé de la journée", () => {
+    renderPreview();
+
+    const carry = screen.getByRole("heading", { name: "Report de la veille" });
+    const today = screen.getByRole("heading", { name: "Rappels du jour" });
+    expect(carry.compareDocumentPosition(today) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("replanifie pour aujourd'hui en un clic", async () => {
+    const user = userEvent.setup();
+    const onResolve = renderPreview();
+
+    await user.click(screen.getByRole("button", { name: /Replanifier aujourd'hui/ }));
+
+    expect(onResolve).toHaveBeenCalledWith(expect.objectContaining({ id: "r-left" }), {
+      action: "replan",
+      newDueDate: "2026-10-26",
+    });
+  });
+
+  it("replanifie demain ou un autre jour de la semaine", async () => {
+    const user = userEvent.setup();
+    const onResolve = renderPreview();
+
+    await user.click(screen.getByRole("button", { name: /Replanifier demain/ }));
+    expect(onResolve).toHaveBeenLastCalledWith(expect.anything(), {
+      action: "replan",
+      newDueDate: "2026-10-27",
+    });
+
+    await user.click(screen.getByRole("button", { name: /Choisir un autre jour/ }));
+    const input = screen.getByLabelText("Nouvelle échéance");
+    await user.clear(input);
+    await user.type(input, "2026-10-30");
+    await user.click(screen.getByRole("button", { name: /Valider la nouvelle échéance/ }));
+    expect(onResolve).toHaveBeenLastCalledWith(expect.anything(), {
+      action: "replan",
+      newDueDate: "2026-10-30",
+    });
+  });
+
+  it("permet d'abandonner le reste", async () => {
+    const user = userEvent.setup();
+    const onResolve = renderPreview();
+
+    await user.click(screen.getByRole("button", { name: /Abandonner/ }));
+
+    expect(onResolve).toHaveBeenCalledWith(expect.anything(), { action: "abandon" });
+  });
+
+  it("affiche l'erreur sur la ligne concernée et réactive les boutons", async () => {
+    const user = userEvent.setup();
+    renderPreview(vi.fn().mockRejectedValue(new Error("boom")));
+
+    await user.click(screen.getByRole("button", { name: /Replanifier aujourd'hui/ }));
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Replanifier aujourd'hui/ })).toBeEnabled();
+  });
+
+  it("reste en lecture seule sans gestionnaire de décision", () => {
+    renderToday({ initialPhase: "preview", remindersStatus: "ready", carryOvers: [leftover()] });
+
+    expect(screen.getByText("Appeler le garage")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Replanifier/ })).not.toBeInTheDocument();
+  });
+});

@@ -3,8 +3,11 @@ import bundledQuotes from "../../assets/quotes-fr.json";
 import { Button } from "../../components/ui/Button";
 import { SkipLink } from "../../components/ui/SkipLink";
 import type { CalendarItem, Reminder } from "../../lib/contracts/types";
+import { openExternal } from "../../lib/external";
+import { UNSPLASH_HOME } from "../../lib/home-photos";
 import type { DayaliError } from "../../lib/ipc/errors";
 import { formatClock, formatLongDate, hourInZone, minuteInZone } from "../../lib/time";
+import type { CarryOverDecision } from "./CarryOverActions";
 import { DayPreview } from "./DayPreview";
 import styles from "./TodayScreen.module.css";
 
@@ -19,6 +22,8 @@ export interface TodayPhoto {
   readonly source?: string;
   /** Texte de la licence, conservé pour vérification (non rendu en lien). */
   readonly licenseUrl?: string;
+  /** `unsplash` : crédit cliquable « Photo de X sur Unsplash » (règles API). */
+  readonly provider?: "unsplash";
 }
 
 export interface TodayScreenProps {
@@ -51,6 +56,10 @@ export interface TodayScreenProps {
   carryOvers: readonly Reminder[];
   /** Fichiers de rappel ignorés à la lecture du calcul des reports. */
   carryOverWarnings: readonly string[];
+  /** Replanifie ou abandonne un reste de la veille depuis l'aperçu du jour. */
+  onResolveCarryOver?:
+    | ((reminder: Reminder, decision: CarryOverDecision) => Promise<void>)
+    | undefined;
   onOpenDashboard: () => void;
   /** Bandeaux de la route : erreurs, conflits, fuseau. Jamais masqués. */
   banners?: ReactNode;
@@ -127,6 +136,7 @@ export function TodayScreen({
   agendaWarnings,
   carryOvers,
   carryOverWarnings,
+  onResolveCarryOver,
   onOpenDashboard,
   banners,
   lateNightEnabled = true,
@@ -344,6 +354,7 @@ export function TodayScreen({
             agendaWarnings={agendaWarnings}
             carryOvers={carryOvers}
             carryOverWarnings={carryOverWarnings}
+            onResolveCarryOver={onResolveCarryOver}
             onRetryReminders={onRetryReminders}
             onRetryAgenda={onRetryAgenda}
             onOpenDashboard={handleOpenDashboardWithTransition}
@@ -352,7 +363,31 @@ export function TodayScreen({
 
         {photo ? (
           <p className={styles.photoCredit} data-testid="photo-credit" title={photo.source}>
-            Photo : {photo.credit} · {photo.license}
+            {photo.provider === "unsplash" ? (
+              <>
+                Photo de{" "}
+                <button
+                  type="button"
+                  className={styles.creditLink}
+                  onClick={() => {
+                    if (photo.source) void openExternal(photo.source);
+                  }}
+                >
+                  {photo.credit}
+                </button>{" "}
+                sur{" "}
+                <button
+                  type="button"
+                  className={styles.creditLink}
+                  onClick={() => void openExternal(UNSPLASH_HOME)}
+                >
+                  Unsplash
+                </button>
+              </>
+            ) : (
+              <>Photo : {photo.credit}</>
+            )}{" "}
+            · {photo.license}
           </p>
         ) : null}
       </main>

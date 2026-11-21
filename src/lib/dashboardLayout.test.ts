@@ -4,11 +4,20 @@ import {
   applyMove,
   applyPosition,
   applyResize,
+  boardHeight,
   clampLayout,
+  columnsForWidth,
+  compactLayout,
   findFreeSlot,
+  GRID_GAP,
+  gridMetrics,
   healLayout,
+  layoutToPixels,
   moveLayout,
   overlaps,
+  pixelsToCell,
+  pixelsToSize,
+  projectToColumns,
   resizeLayout,
   resolveLayout,
 } from "./dashboardLayout";
@@ -111,5 +120,87 @@ describe("dashboardLayout", () => {
     expect(out.map((candidate) => candidate.id)).toEqual(["z", "a"]);
     expect(out[0]?.viewId).toBe("v");
     expect(out[0]?.enabled).toBe(true);
+  });
+});
+
+describe("dashboardLayout — réorganisation automatique", () => {
+  const noOverlap = (widgets: WidgetPlacement[]) => {
+    for (const first of widgets) {
+      for (const second of widgets) {
+        if (first.id !== second.id) expect(overlaps(first.layout, second.layout)).toBe(false);
+      }
+    }
+  };
+
+  it("fait remonter un widget dans un trou laissé par un autre", () => {
+    const out = compactLayout([widget("a", 0, 0, 4, 4), widget("b", 0, 10, 4, 4)]);
+    expect(layoutOf(out, "b")).toEqual({ x: 0, y: 4, w: 4, h: 4 });
+  });
+
+  it("un widget lâché au milieu d'un autre le repousse sans chevauchement", () => {
+    const out = compactLayout(
+      [widget("a", 0, 0, 6, 4), widget("b", 6, 0, 6, 4), widget("c", 0, 4, 6, 4)],
+      "c",
+    );
+    // c reste où on l'a posé (ancre), a est repoussé en dessous, b remonte à côté
+    expect(layoutOf(out, "c")).toEqual({ x: 0, y: 4, w: 6, h: 4 });
+    expect(layoutOf(out, "b")).toEqual({ x: 6, y: 0, w: 6, h: 4 });
+    expect(layoutOf(out, "a")?.y).toBe(0);
+    noOverlap(out);
+  });
+
+  it("lâcher le widget (sans ancre) le fait aussi remonter", () => {
+    const out = compactLayout([widget("a", 0, 0, 4, 4), widget("b", 4, 7, 4, 4)]);
+    expect(layoutOf(out, "b")).toEqual({ x: 4, y: 0, w: 4, h: 4 });
+  });
+
+  it("conserve l'ordre du tableau", () => {
+    const out = compactLayout([widget("z", 0, 8, 4, 4), widget("a", 0, 0, 4, 4)]);
+    expect(out.map((candidate) => candidate.id)).toEqual(["z", "a"]);
+  });
+});
+
+describe("dashboardLayout — responsive et pixels", () => {
+  it("choisit 12, 6 ou 1 colonne selon la largeur disponible", () => {
+    expect(columnsForWidth(1200)).toBe(12);
+    expect(columnsForWidth(820)).toBe(12);
+    expect(columnsForWidth(700)).toBe(6);
+    expect(columnsForWidth(519)).toBe(1);
+  });
+
+  it("projette sur 6 colonnes sans chevauchement et sans modifier l'original", () => {
+    const input = [widget("a", 0, 0, 8, 4), widget("b", 8, 0, 4, 4), widget("c", 0, 4, 12, 2)];
+    const out = projectToColumns(input, 6);
+    expect(layoutOf(out, "a")).toMatchObject({ x: 0, w: 4 });
+    expect(layoutOf(out, "b")).toMatchObject({ x: 4, w: 2 });
+    for (const item of out) expect(item.layout.x + item.layout.w).toBeLessThanOrEqual(6);
+    expect(layoutOf(input, "a")).toEqual({ x: 0, y: 0, w: 8, h: 4 });
+  });
+
+  it("empile en une colonne dans l'ordre de lecture (haut→bas, gauche→droite)", () => {
+    const out = projectToColumns(
+      [widget("droite", 6, 0, 6, 4), widget("gauche", 0, 0, 6, 4), widget("bas", 0, 4, 12, 3)],
+      1,
+    );
+    expect(layoutOf(out, "gauche")).toMatchObject({ x: 0, y: 0, w: 1 });
+    expect(layoutOf(out, "droite")).toMatchObject({ x: 0, y: 4, w: 1 });
+    expect(layoutOf(out, "bas")).toMatchObject({ x: 0, y: 8, w: 1 });
+  });
+
+  it("convertit cellules et pixels dans les deux sens", () => {
+    const metrics = gridMetrics(1200, 12, 40);
+    const rect = layoutToPixels({ x: 3, y: 2, w: 4, h: 5 }, metrics);
+    expect(pixelsToCell(rect.left, rect.top, metrics)).toEqual({ x: 3, y: 2 });
+    expect(pixelsToSize(rect.width, rect.height, metrics)).toEqual({ w: 4, h: 5 });
+    // un demi-pas de plus ne change pas encore de cellule
+    expect(pixelsToCell(rect.left + metrics.stepX * 0.4, rect.top, metrics).x).toBe(3);
+    expect(pixelsToCell(rect.left + metrics.stepX * 0.6, rect.top, metrics).x).toBe(4);
+  });
+
+  it("calcule la hauteur du tableau depuis le widget le plus bas", () => {
+    const metrics = gridMetrics(1200, 12, 40);
+    expect(boardHeight([widget("a", 0, 0, 4, 4), widget("b", 0, 4, 4, 3)], metrics)).toBe(
+      7 * metrics.stepY - GRID_GAP,
+    );
   });
 });

@@ -27,6 +27,7 @@ import type {
   CalendarListInput,
   ConfigPatchInput,
   DayStartInput,
+  HomePhoto,
   IpcApi,
   ReminderReportInput,
   VaultCreateInput,
@@ -732,6 +733,11 @@ export function createMockIpc(options: MockIpcOptions = {}): MockIpc {
       }
       lists = lists.filter((item) => item.id !== input.id);
       listHashes.delete(input.id);
+    },
+
+    // Le mock navigateur ne fait aucun appel réseau : la photo embarquée reste affichée.
+    async homePhotoUnsplash(): Promise<HomePhoto | null> {
+      return null;
     },
   };
 }

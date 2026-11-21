@@ -4,9 +4,11 @@
 pub mod calendar;
 pub mod config;
 pub mod day;
+pub mod home_photos;
 pub mod quotes;
 pub mod ics;
 pub mod machine;
+pub mod migrations;
 pub mod paths;
 pub mod reminders;
 pub mod vault;

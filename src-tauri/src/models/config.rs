@@ -10,6 +10,11 @@ use serde_json::Value;
 use crate::error::DayaliError;
 use crate::models::common::{is_project_id, is_sha256_hex, is_time_zone_name, is_uuid};
 
+/// Version du format de `config.json`. Toute évolution incompatible s'accompagne
+/// d'une migration dans `services/migrations.rs` ; un vault plus récent que
+/// l'application est refusé explicitement, jamais réécrit.
+pub const CONFIG_SCHEMA_VERSION: u32 = 2;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Config {
@@ -279,7 +284,7 @@ impl Default for Config {
     /// la vue « Ma journée » par défaut arrive à l'étape (b)/(c) (PLAN §4.5).
     fn default() -> Self {
         Self {
-            schema_version: 1,
+            schema_version: CONFIG_SCHEMA_VERSION,
             day_start_hour: 4,
             open_dashboard_on_launch: false,
             locale: "fr-FR".to_string(),
@@ -368,12 +373,12 @@ impl Config {
 
     /// Invariants non exprimables en JSON Schema (PLAN §4.1) et bornes des champs.
     pub fn validate(&self) -> Result<(), DayaliError> {
-        if self.schema_version != 1 {
+        if self.schema_version != CONFIG_SCHEMA_VERSION {
             return Err(DayaliError::schema_invalid(
                 "/schemaVersion",
                 format!(
-                    "schemaVersion {} inconnu : seul 1 est supporté (aucune réécriture)",
-                    self.schema_version
+                    "schemaVersion {} inconnu : seul {} est supporté (aucune réécriture)",
+                    self.schema_version, CONFIG_SCHEMA_VERSION
                 ),
             ));
         }
@@ -603,23 +608,16 @@ impl Config {
                 "dim hors 0–0.85",
             ));
         }
-        match image.mode {
-            HomeImageMode::Unsplash => match &image.unsplash_query {
-                Some(query) if !query.trim().is_empty() && query.chars().count() <= 120 => {}
-                _ => {
-                    return Err(DayaliError::schema_invalid(
-                        "/appearance/homeImage/unsplashQuery",
-                        "mode unsplash : unsplashQuery non vide requis",
-                    ));
-                }
-            },
-            HomeImageMode::Bundled | HomeImageMode::Folder => {
-                if image.unsplash_query.is_some() {
-                    return Err(DayaliError::schema_invalid(
-                        "/appearance/homeImage/unsplashQuery",
-                        "mode bundled/folder : unsplashQuery doit être null",
-                    ));
-                }
+        // `unsplashQuery` est indépendant du mode : vide ou null signifie
+        // « landscape » (défaut du service), et une valeur conservée pendant un
+        // passage en mode embarqué reste inoffensive. Aucun de ces cas ne doit
+        // empêcher l'ouverture d'un vault.
+        if let Some(query) = &image.unsplash_query {
+            if query.chars().count() > 120 {
+                return Err(DayaliError::schema_invalid(
+                    "/appearance/homeImage/unsplashQuery",
+                    "au plus 120 caractères",
+                ));
             }
         }
         Ok(())
@@ -882,4 +880,32 @@ pub fn is_supported_time_zone(value: &str) -> bool {
 /// Une révision est un SHA-256 hexadécimal minuscule.
 pub fn is_revision(value: &str) -> bool {
     is_sha256_hex(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unsplash_mode_accepts_a_missing_or_empty_query() {
+        let mut config = Config::default();
+        config.appearance.home_image.mode = HomeImageMode::Unsplash;
+
+        config.appearance.home_image.unsplash_query = None;
+        assert!(config.validate().is_ok());
+
+        config.appearance.home_image.unsplash_query = Some("   ".to_string());
+        assert!(config.validate().is_ok());
+
+        config.appearance.home_image.unsplash_query = Some("a".repeat(121));
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn a_saved_query_is_harmless_in_bundled_mode() {
+        let mut config = Config::default();
+        config.appearance.home_image.mode = HomeImageMode::Bundled;
+        config.appearance.home_image.unsplash_query = Some("mountains".to_string());
+        assert!(config.validate().is_ok());
+    }
 }

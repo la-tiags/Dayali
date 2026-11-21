@@ -29,7 +29,7 @@
  * la couche soit recalculée.
  */
 .backgroundBlur {
-  filter: blur(14px) brightness(0.6);
+  filter: blur(10px) brightness(0.85);
   transform: scale(1.06);
   opacity: 0;
   transition: opacity 400ms ease;
@@ -53,9 +53,9 @@
   transition: opacity 400ms ease;
 }
 
-/* L'assombrissement est progressif : seule l'opacité change, le dégradé reste. */
+/* L'assombrissement est léger : le fond reste chaleureux et visible. */
 .preview .veil {
-  opacity: 1;
+  opacity: 0.82;
 }
 
 .content {
@@ -613,4 +613,64 @@
   .previewFooter > * {
     flex: 1;
   }
+}
+
+.creditLink {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
+.creditLink:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.carryIntro {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.9375rem;
+}
+
+.carryActions {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.carryPicker {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.carryPickerLabel {
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.carryDateInput {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-elevated);
+  color: inherit;
+  font: inherit;
+}
+
+.carryError {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 0.875rem;
 }

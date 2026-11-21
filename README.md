@@ -25,6 +25,10 @@
 
 ## Qu'est-ce que Dayali ?
 
+Dayali est un compagnon de journée **local-first** : un accueil plein cadre avec la photo du jour, une citation, vos rappels et votre agenda local. Aucun compte, aucun serveur : l'application fonctionne hors ligne et vos données restent dans un dossier que vous choisissez.
+
+La photo d'accueil est embarquée (Wikimedia Commons, CC0 1.0). En option, l'écran d'accueil peut afficher un **paysage Unsplash différent chaque jour**, choisi par mots-clés : aucune clé à saisir, la clé de l'application est intégrée à la release (jamais dans le dépôt), les photos sont hotlinkées (aucune copie locale) et l'historique des identifiants empêche de revoir deux fois la même image. Hors ligne, les photos embarquées reprennent automatiquement.
+
 Dayali est une application de bureau **local-first** qui structure votre journée en trois temps :
 
 | Moment | Ce que vous faites |

@@ -36,6 +36,12 @@ pub enum ErrorCode {
     PathEscape,
     #[serde(rename = "E_UNSUPPORTED")]
     Unsupported,
+    #[serde(rename = "E_UNAUTHORIZED")]
+    Unauthorized,
+    #[serde(rename = "E_NETWORK")]
+    Network,
+    #[serde(rename = "E_RATE_LIMITED")]
+    RateLimited,
     #[serde(rename = "E_TAURI")]
     Tauri,
     #[serde(rename = "E_INTERNAL")]
@@ -57,6 +63,9 @@ impl ErrorCode {
             ErrorCode::LockTimeout => "E_LOCK_TIMEOUT",
             ErrorCode::PathEscape => "E_PATH_ESCAPE",
             ErrorCode::Unsupported => "E_UNSUPPORTED",
+            ErrorCode::Unauthorized => "E_UNAUTHORIZED",
+            ErrorCode::Network => "E_NETWORK",
+            ErrorCode::RateLimited => "E_RATE_LIMITED",
             ErrorCode::Tauri => "E_TAURI",
             ErrorCode::Internal => "E_INTERNAL",
         }
