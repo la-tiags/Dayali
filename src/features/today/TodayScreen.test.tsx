@@ -161,6 +161,23 @@ describe("TodayScreen — état accueil", () => {
     const credit = screen.getByTestId("photo-credit");
     expect(credit).toHaveTextContent("Jane Doe");
     expect(credit).toHaveTextContent("Unsplash License");
+
+    rerender(
+      <TodayScreen
+        {...props}
+        photo={{
+          src: "/images/home.jpg",
+          credit: "Jane Doe",
+          license: "Unsplash License",
+          provider: "unsplash",
+          source: "https://unsplash.com/photos/xyz",
+        }}
+      />,
+    );
+
+    const unsplashCredit = screen.getByTestId("photo-credit");
+    expect(unsplashCredit).toHaveTextContent("Photo de Jane Doe sur Unsplash");
+    expect(unsplashCredit).not.toHaveTextContent("Unsplash License");
   });
 });
 

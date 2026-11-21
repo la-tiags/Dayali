@@ -385,9 +385,11 @@ export function TodayScreen({
                 </button>
               </>
             ) : (
-              <>Photo : {photo.credit}</>
-            )}{" "}
-            · {photo.license}
+              <>
+                Photo : {photo.credit}
+                {photo.license ? ` · ${photo.license}` : null}
+              </>
+            )}
           </p>
         ) : null}
       </main>
