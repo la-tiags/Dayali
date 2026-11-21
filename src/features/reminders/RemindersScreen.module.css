@@ -408,6 +408,19 @@
   background-color: var(--color-surface);
 }
 
+.titleInput {
+  min-width: 0;
+  flex: 1;
+  padding: 0.35rem var(--space-1);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 1rem;
+  text-overflow: ellipsis;
+}
+
 .itemDone .titleInput {
   color: var(--color-text-muted);
 }
@@ -426,19 +439,6 @@
   color: var(--color-accent-text);
   font-weight: 700;
   letter-spacing: -0.06em;
-}
-
-.titleInput {
-  min-width: 0;
-  flex: 1;
-  padding: 0.35rem var(--space-1);
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background-color: transparent;
-  color: var(--color-text);
-  font: inherit;
-  font-size: 1rem;
-  text-overflow: ellipsis;
 }
 
 .titleInput:focus {
