@@ -86,6 +86,14 @@ export function DashboardScreen({
   const rowHeight = config.dashboard.rowHeight;
   const gridRef = useRef<HTMLDivElement>(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+
+  const handleNavigateToEndOfDay = () => {
+    setIsTransitioning(true);
+    setTimeout(() => {
+      navigate("/end-of-day");
+    }, 220);
+  };
 
   // Aperçu pendant un redimensionnement (taille) ou un déplacement (position).
   const [preview, setPreview] = useState<{ id: string; w: number; h: number } | null>(null);
@@ -276,6 +284,9 @@ export function DashboardScreen({
   if (widgets.length === 0) {
     return (
       <section className={styles.screen} aria-labelledby="dashboard-title">
+        {isTransitioning ? (
+          <div className={styles.fullscreenTransitionOverlay} aria-hidden="true" />
+        ) : null}
         <h1 className={styles.title} id="dashboard-title">
           Dashboard
         </h1>
@@ -288,9 +299,17 @@ export function DashboardScreen({
           </p>
         </div>
         <div className={styles.headerActions}>
-          <Button variant="secondary" onClick={() => navigate("/end-of-day")}>
-            Fin de journée
-          </Button>
+          <button
+            type="button"
+            className={styles.endOfDayButton}
+            onClick={handleNavigateToEndOfDay}
+            aria-label="Fin de journée"
+          >
+            <span className={styles.endOfDayIcon} aria-hidden="true">
+              🌙
+            </span>
+            <span>Fin de journée</span>
+          </button>
           {onAddWidget ? (
             <div className={styles.addMenuContainer}>
               <Button
@@ -364,6 +383,9 @@ export function DashboardScreen({
 
   return (
     <section className={styles.screen} aria-labelledby="dashboard-title">
+      {isTransitioning ? (
+        <div className={styles.fullscreenTransitionOverlay} aria-hidden="true" />
+      ) : null}
       <header className={styles.header}>
         <div className={styles.titleBlock}>
           <h1 className={styles.title} id="dashboard-title">
@@ -377,9 +399,17 @@ export function DashboardScreen({
           >
             {isEditing ? "Terminer la modification" : "Modifier la disposition"}
           </Button>
-          <Button variant="secondary" onClick={() => navigate("/end-of-day")}>
-            Fin de journée
-          </Button>
+          <button
+            type="button"
+            className={styles.endOfDayButton}
+            onClick={handleNavigateToEndOfDay}
+            aria-label="Fin de journée"
+          >
+            <span className={styles.endOfDayIcon} aria-hidden="true">
+              🌙
+            </span>
+            <span>Fin de journée</span>
+          </button>
           {onAddWidget && isEditing ? (
             <div className={styles.addMenuContainer}>
               <Button

@@ -22,7 +22,7 @@ function renderAppShell(overrides: Partial<Parameters<typeof AppShell>[0]> = {})
 }
 
 describe("AppShell (Sidebar)", () => {
-  it("affiche la sidebar avec le nom du vault et les liens de navigation (Dashboard, Agenda, Rappels, Accueil, Réglages)", () => {
+  it("affiche la sidebar avec le nom du vault et les liens de navigation (Dashboard, Agenda, Rappels, Accueil, Fin de journée, Réglages)", () => {
     renderAppShell();
 
     expect(screen.getByText("Mon Super Vault")).toBeInTheDocument();
@@ -33,6 +33,7 @@ describe("AppShell (Sidebar)", () => {
     expect(screen.getByRole("link", { name: /dashboard/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /agenda/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /rappels/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /fin de journée/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /réglages/i })).toBeInTheDocument();
   });
 

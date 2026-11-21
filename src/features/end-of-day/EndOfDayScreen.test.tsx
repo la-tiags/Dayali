@@ -128,6 +128,11 @@ describe("EndOfDayScreen", () => {
     const finishBtn = screen.getByRole("button", { name: /Bonne soirée/i });
     fireEvent.click(finishBtn);
 
-    expect(await screen.findByText("Bonne soirée ! 🌙")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Bonne soirée ! 🌙" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Résumé du jour" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Accomplissements du jour/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Tâches pour demain/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Agenda de demain/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Retour au dashboard/i })).toBeInTheDocument();
   });
 });

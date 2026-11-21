@@ -444,3 +444,61 @@
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
 }
+
+.endOfDayButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid rgb(139 92 246 / 45%);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, rgb(79 70 229 / 18%) 0%, rgb(139 92 246 / 26%) 100%);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgb(99 102 241 / 18%);
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.15s ease;
+}
+
+.endOfDayButton:hover {
+  border-color: rgb(139 92 246 / 75%);
+  background: linear-gradient(135deg, rgb(79 70 229 / 30%) 0%, rgb(139 92 246 / 42%) 100%);
+  box-shadow: 0 4px 16px rgb(139 92 246 / 35%);
+  transform: translateY(-1px);
+}
+
+.endOfDayButton:active {
+  transform: translateY(0);
+}
+
+.endOfDayIcon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.fullscreenTransitionOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #0c0e13;
+  pointer-events: all;
+  animation: expandFullscreen 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes expandFullscreen {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

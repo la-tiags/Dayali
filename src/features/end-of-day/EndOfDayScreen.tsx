@@ -366,6 +366,11 @@ export function EndOfDayScreen({
   const openReminders = reminders.filter((r) => r.status === "open");
   const doneReminders = reminders.filter((r) => r.status === "done");
   const abandonedReminders = reminders.filter((r) => r.status === "abandoned");
+  const tomorrowReminders = reminders.filter(
+    (r) =>
+      intents[r.id]?.action === "tomorrow" ||
+      (intents[r.id]?.action === "replan" && intents[r.id]?.newDueDate === tomorrow),
+  );
 
   return (
     <div
@@ -424,32 +429,117 @@ export function EndOfDayScreen({
 
       <main className={styles.content}>
         {isFinished ? (
-          <section aria-labelledby={titleId} className={styles.finishedScreen}>
-            <h1 id={titleId} className={styles.finishedTitle}>
-              Bonne soirée ! 🌙
-            </h1>
-            <p className={styles.finishedText}>
-              Votre bilan de la journée du {formatLocalDateLong(logicalDate, locale)} est
-              enregistré.
-            </p>
-            <div className={styles.finishedBox}>
-              <p>
-                <strong>Tâches traitées / reportées :</strong> {summaryStats.processed}
+          <div className={styles.layout}>
+            <header className={styles.header}>
+              <p className={styles.eyebrow}>
+                Fin de journée terminée · {formatLocalDateLong(logicalDate, locale)}
               </p>
-              <p>
-                <strong>Nouvelles tâches pour demain :</strong> {summaryStats.quickAdded}
+              <h1 id={titleId} className={styles.title}>
+                Bonne soirée ! 🌙
+              </h1>
+              <p className={styles.meta}>
+                Votre bilan de la journée du {formatLocalDateLong(logicalDate, locale)} est
+                enregistré.
               </p>
-              <p>
-                <strong>Événements demain ({formatLocalDateLong(tomorrow, locale)}) :</strong>{" "}
-                {calendarTomorrow?.items.length ?? 0}
-              </p>
-            </div>
+            </header>
+
+            {/* Résumé du jour */}
+            <section aria-labelledby="bilan-section-finished" className={styles.section}>
+              <h2 id="bilan-section-finished" className={styles.sectionTitle}>
+                Résumé du jour
+              </h2>
+              <div className={styles.statsGrid}>
+                <div className={styles.statCard}>
+                  <div className={styles.statValue}>{doneReminders.length}</div>
+                  <div className={styles.statLabel}>Tâches faites</div>
+                </div>
+                <div className={styles.statCard}>
+                  <div className={styles.statValue}>{summaryStats.processed}</div>
+                  <div className={styles.statLabel}>Tâches traitées / reportées</div>
+                </div>
+                <div className={styles.statCard}>
+                  <div className={styles.statValue}>
+                    {summaryStats.quickAdded + (calendarTomorrow?.items.length ?? 0)}
+                  </div>
+                  <div className={styles.statLabel}>Pour demain</div>
+                </div>
+              </div>
+            </section>
+
+            {/* Accomplissements du jour / Tâches faites */}
+            <section aria-labelledby="finished-done-tasks" className={styles.section}>
+              <h2 id="finished-done-tasks" className={styles.sectionTitle}>
+                Accomplissements du jour ({doneReminders.length})
+              </h2>
+              {doneReminders.length === 0 ? (
+                <p className={styles.emptyNote}>Aucune tâche terminée aujourd'hui.</p>
+              ) : (
+                <ul className={styles.taskList}>
+                  {doneReminders.map((reminder) => (
+                    <li key={reminder.id} className={styles.doneTaskItem}>
+                      <span className={styles.doneCheckBadge} aria-hidden="true">
+                        ✓
+                      </span>
+                      <span className={styles.doneTaskTitle}>{reminder.title}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            {/* Prévu pour demain */}
+            <section aria-labelledby="finished-tomorrow-tasks" className={styles.section}>
+              <h2 id="finished-tomorrow-tasks" className={styles.sectionTitle}>
+                Tâches pour demain ({formatLocalDateLong(tomorrow, locale)})
+              </h2>
+              {draftTasks.length === 0 && tomorrowReminders.length === 0 ? (
+                <p className={styles.emptyNote}>Aucune tâche prévue pour demain.</p>
+              ) : (
+                <ul className={styles.taskList}>
+                  {tomorrowReminders.map((reminder) => (
+                    <li key={reminder.id} className={styles.taskItem}>
+                      <div className={styles.taskTitleInfo}>
+                        <strong className={styles.taskTitle}>{reminder.title}</strong>
+                        <span className={styles.taskIntent}>[Reportée à demain]</span>
+                      </div>
+                    </li>
+                  ))}
+                  {draftTasks.map((t) => (
+                    <li key={t.tempId} className={styles.taskItem}>
+                      <div className={styles.taskTitleInfo}>
+                        <strong className={styles.taskTitle}>{t.title}</strong>
+                        <span className={styles.taskIntent}>[Nouvelle tâche]</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            {/* Agenda de demain */}
+            <section aria-labelledby="finished-agenda-tomorrow" className={styles.section}>
+              <h2 id="finished-agenda-tomorrow" className={styles.sectionTitle}>
+                Agenda de demain ({formatLocalDateLong(tomorrow, locale)})
+              </h2>
+              {!calendarTomorrow || calendarTomorrow.items.length === 0 ? (
+                <p className={styles.emptyNote}>Aucun événement prévu demain dans l'agenda.</p>
+              ) : (
+                <ul className={styles.taskList}>
+                  {calendarTomorrow.items.map((ev) => (
+                    <li key={ev.uid} className={styles.agendaItem}>
+                      <strong>{ev.title}</strong>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
             <div className={styles.finishedBack}>
               <Button size="sm" variant="ghost" onClick={handleCloseNavigation}>
                 Retour au dashboard
               </Button>
             </div>
-          </section>
+          </div>
         ) : (
           <div className={styles.layout}>
             <div className={styles.topBar}>

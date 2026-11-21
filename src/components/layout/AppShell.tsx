@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { NavLink } from "react-router";
+import { type MouseEvent, type ReactNode, useState } from "react";
+import { NavLink, useNavigate } from "react-router";
 import { SkipLink } from "../ui/SkipLink";
 import styles from "./AppShell.module.css";
 
@@ -12,8 +12,22 @@ export interface AppShellProps {
 
 /** Coquille des écrans vault ouvert : sidebar latérale responsive, navigation clavier, bandeaux persistants. */
 export function AppShell({ vaultName, banners, onOpenVaultChooser, children }: AppShellProps) {
+  const navigate = useNavigate();
+  const [isTransitioning, setIsTransitioning] = useState(false);
+
+  const handleGoEndOfDay = (e: MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault();
+    setIsTransitioning(true);
+    setTimeout(() => {
+      navigate("/end-of-day");
+    }, 220);
+  };
+
   return (
     <div className={styles.shell}>
+      {isTransitioning ? (
+        <div className={styles.fullscreenTransitionOverlay} aria-hidden="true" />
+      ) : null}
       <SkipLink />
       <aside className={styles.sidebar} aria-label="Navigation principale et vault">
         <div className={styles.topSection}>
@@ -109,6 +123,26 @@ export function AppShell({ vaultName, banners, onOpenVaultChooser, children }: A
         </nav>
 
         <div className={styles.footer}>
+          <NavLink
+            to="/end-of-day"
+            onClick={handleGoEndOfDay}
+            className={({ isActive }) =>
+              [styles.endOfDayLink, isActive ? styles.active : ""].filter(Boolean).join(" ")
+            }
+            aria-label="Fin de journée"
+          >
+            <svg
+              className={styles.navIcon}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+            </svg>
+            <span className={styles.navText}>Fin de journée</span>
+          </NavLink>
           <NavLink to="/settings" className={styles.navLink ?? ""} aria-label="Réglages">
             <svg
               className={styles.navIcon}
