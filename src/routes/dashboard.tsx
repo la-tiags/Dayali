@@ -1,9 +1,9 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { useNavigate } from "react-router";
 import { AppShell } from "../components/layout/AppShell";
 import { StatusBanners } from "../components/ui/StatusBanners";
-import { DashboardScreen } from "../features/dashboard/DashboardScreen";
-import type { SavedView, WidgetPlacement } from "../lib/contracts/types";
+import { type AddWidgetTarget, DashboardScreen } from "../features/dashboard/DashboardScreen";
+import type { ReminderList, SavedView, WidgetPlacement } from "../lib/contracts/types";
 import {
   applyMove,
   applyPosition,
@@ -12,6 +12,7 @@ import {
   healLayout,
 } from "../lib/dashboardLayout";
 import { isDayStarted, logicalDay } from "../lib/day";
+import { getIpc } from "../lib/ipc";
 import { resolveTimeZone, systemTimeZone } from "../lib/time";
 import { useClock } from "../lib/useClock";
 import { useAppStore } from "../stores/app.store";
@@ -26,11 +27,17 @@ export function DashboardRoute() {
   const busy = useAppStore((state) => state.busy);
   const error = useAppStore((state) => state.error);
   const conflictCopy = useAppStore((state) => state.configConflictCopy);
+  const reminderLists = useAppStore((state) => state.reminders.lists);
+  const loadReminders = useAppStore((state) => state.loadReminders);
   const closeVault = useAppStore((state) => state.closeVault);
   const reloadConfig = useAppStore((state) => state.reloadConfig);
   const patchConfig = useAppStore((state) => state.patchConfig);
   const setOpenDashboardOnLaunch = useAppStore((state) => state.setOpenDashboardOnLaunch);
   const dismissError = useAppStore((state) => state.dismissError);
+
+  useEffect(() => {
+    void loadReminders();
+  }, [loadReminders]);
 
   const resolvedZone = resolveTimeZone(systemTimeZone());
   const timeZone = resolvedZone.timeZone;
@@ -55,26 +62,39 @@ export function DashboardRoute() {
   );
 
   const handleAddWidget = useCallback(
-    async (module: "reminders" | "agenda" = "reminders") => {
+    async (target: "reminders" | "agenda" | AddWidgetTarget = "reminders") => {
       if (!config) return;
-      let views: SavedView[] = [...config.views];
-      let view = views.find((v) => v.module === module);
-      if (!view) {
-        const nowIso = new Date().toISOString();
-        view = {
-          id: crypto.randomUUID(),
-          module,
-          name: module === "agenda" ? "Agenda" : "Rappels",
-          origin: "widget",
-          filter:
-            module === "agenda" ? { rangeDays: 7, includeAllDay: true } : { statuses: ["open"] },
-          createdAt: nowIso,
-          updatedAt: nowIso,
-        };
-        views = [...views, view];
+      const nowIso = new Date().toISOString();
+      let module: "reminders" | "agenda" = "reminders";
+      let title = "Rappels";
+      let filter: Record<string, unknown> = { statuses: ["open"] };
+
+      if (target === "agenda" || (typeof target === "object" && target.type === "agenda")) {
+        module = "agenda";
+        title = "Agenda";
+        filter = { rangeDays: 7, includeAllDay: true };
+      } else if (typeof target === "object" && target.type === "reminders-today") {
+        title = "Ma journée";
+        filter = { statuses: ["open"], dueWithinDays: 0 };
+      } else if (typeof target === "object" && target.type === "reminders-list") {
+        title = target.listName;
+        filter = { listIds: [target.listId], statuses: ["open"] };
+      } else {
+        title = "Toutes les tâches";
+        filter = { statuses: ["open"] };
       }
-      // On répare d'abord une éventuelle disposition qui se chevauche, puis on place le
-      // nouveau widget dans le premier emplacement libre de la grille.
+
+      const viewId = crypto.randomUUID();
+      const view: SavedView = {
+        id: viewId,
+        module,
+        name: title,
+        origin: "widget",
+        filter,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+
       const existing = healLayout(config.dashboard.widgets);
       const size = { w: module === "agenda" ? 6 : 4, h: 6 };
       const slot = findFreeSlot(
@@ -82,19 +102,73 @@ export function DashboardRoute() {
         size.w,
         size.h,
       );
+
       const widget: WidgetPlacement = {
         id: crypto.randomUUID(),
         module,
-        viewId: view.id,
-        title: module === "agenda" ? "Agenda" : "Rappels",
+        viewId,
+        title,
         layout: { ...slot, ...size },
         enabled: true,
       };
+
+      const views = [...config.views, view];
       const widgets = [...existing, widget];
       await patchConfig({ views, dashboard: { widgets } });
       await reloadConfig();
     },
     [config, patchConfig, reloadConfig],
+  );
+
+  const handleChangeWidgetList = useCallback(
+    async (widgetId: string, targetList: string | null) => {
+      if (!config) return;
+      const widget = config.dashboard.widgets.find((w) => w.id === widgetId);
+      if (!widget) return;
+
+      const lists =
+        reminderLists.length > 0
+          ? reminderLists
+          : await getIpc()
+              .reminderListDefs()
+              .catch(() => [] as ReminderList[]);
+      const chosenList = lists.find((l) => l.id === targetList);
+
+      const title =
+        targetList === "__my_day__"
+          ? "Ma journée"
+          : chosenList
+            ? chosenList.name
+            : "Toutes les tâches";
+
+      const filter =
+        targetList === "__my_day__"
+          ? { statuses: ["open"], dueWithinDays: 0 }
+          : chosenList
+            ? { listIds: [chosenList.id], statuses: ["open"] }
+            : { statuses: ["open"] };
+
+      const nowIso = new Date().toISOString();
+      const newViewId = crypto.randomUUID();
+      const newView: SavedView = {
+        id: newViewId,
+        module: "reminders",
+        name: title,
+        origin: "widget",
+        filter,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+
+      const views = [...config.views, newView];
+      const widgets = config.dashboard.widgets.map((w) =>
+        w.id === widgetId ? { ...w, viewId: newViewId, title } : w,
+      );
+
+      await patchConfig({ views, dashboard: { widgets } });
+      await reloadConfig();
+    },
+    [config, patchConfig, reloadConfig, reminderLists],
   );
 
   const handleRemoveWidget = useCallback(
@@ -192,6 +266,8 @@ export function DashboardRoute() {
         onMoveWidget={(id, dir) => void handleMoveWidget(id, dir)}
         onResizeWidget={(id, w, h) => handleResizeWidget(id, w, h)}
         onDragWidget={(id, x, y) => handleDragWidget(id, x, y)}
+        onChangeWidgetList={handleChangeWidgetList}
+        reminderLists={reminderLists}
       />
     </AppShell>
   );

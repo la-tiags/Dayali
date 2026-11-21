@@ -203,15 +203,31 @@ describe("DashboardScreen", () => {
     expect(props.onResizeWidget).not.toHaveBeenCalled();
   });
 
-  it("déplace un widget vers la gauche ou la droite depuis la barre d'édition", async () => {
+  it("permet de changer la liste associée à un widget de rappels en mode édition", async () => {
     const user = userEvent.setup();
-    const { props } = renderDashboard();
+    const onChangeWidgetList = vi.fn();
+    renderDashboard({
+      onChangeWidgetList,
+      reminderLists: [
+        {
+          schemaVersion: 1,
+          id: "list-ecole",
+          name: "École",
+          color: "#4a90e2",
+          order: 0,
+          archived: false,
+          createdAt: "",
+          updatedAt: "",
+          machineId: "m1",
+        },
+      ],
+    });
     await user.click(screen.getByRole("button", { name: "Modifier la disposition" }));
 
-    await user.click(screen.getByRole("button", { name: "Décaler à droite Ma journée" }));
-    expect(props.onMoveWidget).toHaveBeenLastCalledWith("w1", "right");
-    await user.click(screen.getByRole("button", { name: "Décaler à gauche Agenda" }));
-    expect(props.onMoveWidget).toHaveBeenLastCalledWith("w2", "left");
+    const select = screen.getByRole("combobox", { name: "Changer la liste pour Ma journée" });
+    expect(select).toBeInTheDocument();
+    await user.selectOptions(select, "list-ecole");
+    expect(onChangeWidgetList).toHaveBeenCalledWith("w1", "list-ecole");
   });
 
   it("affiche la poignée de déplacement uniquement en mode édition et permet le déplacement au clavier", async () => {

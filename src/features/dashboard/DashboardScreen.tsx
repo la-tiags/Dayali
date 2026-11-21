@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useNavigate } from "react-router";
 import { Button } from "../../components/ui/Button";
-import type { Config, WidgetPlacement } from "../../lib/contracts/types";
+import type { Config, ReminderList, WidgetPlacement } from "../../lib/contracts/types";
 import {
   clampLayout,
   GRID_COLUMNS,
@@ -21,6 +21,12 @@ import { CalendarWidget } from "../widgets/CalendarWidget";
 import { ReminderWidget } from "../widgets/ReminderWidget";
 import styles from "./DashboardScreen.module.css";
 
+export type AddWidgetTarget =
+  | { type: "agenda" }
+  | { type: "reminders-all" }
+  | { type: "reminders-today" }
+  | { type: "reminders-list"; listId: string; listName: string };
+
 export interface DashboardScreenProps {
   config: Config;
   logicalDate: string;
@@ -29,12 +35,14 @@ export interface DashboardScreenProps {
   onOpenVaultChooser: () => void;
   busy?: boolean;
   onOpenDashboardOnLaunchChange?: (value: boolean) => void;
-  onAddWidget?: (module?: "reminders" | "agenda") => void;
+  onAddWidget?: (target?: "reminders" | "agenda" | AddWidgetTarget) => void;
   onRemoveWidget?: (id: string) => void;
   onToggleWidget?: (id: string) => void;
   onMoveWidget?: (id: string, direction: "up" | "down" | "left" | "right") => void;
   onResizeWidget?: (id: string, w: number, h: number) => void | Promise<void>;
   onDragWidget?: (id: string, x: number, y: number) => void | Promise<void>;
+  onChangeWidgetList?: (widgetId: string, listId: string | null) => void | Promise<void>;
+  reminderLists?: readonly ReminderList[];
 }
 
 const MODULE_LABEL: Record<WidgetPlacement["module"], string> = {
@@ -71,10 +79,13 @@ export function DashboardScreen({
   onMoveWidget,
   onResizeWidget,
   onDragWidget,
+  onChangeWidgetList,
+  reminderLists = [],
 }: DashboardScreenProps) {
   const navigate = useNavigate();
   const rowHeight = config.dashboard.rowHeight;
   const gridRef = useRef<HTMLDivElement>(null);
+  const [showAddMenu, setShowAddMenu] = useState(false);
 
   // Aperçu pendant un redimensionnement (taille) ou un déplacement (position).
   const [preview, setPreview] = useState<{ id: string; w: number; h: number } | null>(null);
@@ -281,14 +292,70 @@ export function DashboardScreen({
             Fin de journée
           </Button>
           {onAddWidget ? (
-            <>
-              <Button variant="primary" onClick={() => onAddWidget("reminders")}>
-                + Widget Rappels
+            <div className={styles.addMenuContainer}>
+              <Button
+                variant="primary"
+                onClick={() => setShowAddMenu((prev) => !prev)}
+                aria-expanded={showAddMenu}
+              >
+                + Ajouter un widget
               </Button>
-              <Button variant="secondary" onClick={() => onAddWidget("agenda")}>
-                + Widget Agenda
-              </Button>
-            </>
+              {showAddMenu ? (
+                <div className={styles.addMenuDropdown} role="menu">
+                  <button
+                    type="button"
+                    className={styles.addMenuItem}
+                    role="menuitem"
+                    onClick={() => {
+                      setShowAddMenu(false);
+                      onAddWidget("agenda");
+                    }}
+                  >
+                    📅 Agenda
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.addMenuItem}
+                    role="menuitem"
+                    onClick={() => {
+                      setShowAddMenu(false);
+                      onAddWidget({ type: "reminders-all" });
+                    }}
+                  >
+                    📋 Toutes les tâches
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.addMenuItem}
+                    role="menuitem"
+                    onClick={() => {
+                      setShowAddMenu(false);
+                      onAddWidget({ type: "reminders-today" });
+                    }}
+                  >
+                    ☀️ Ma journée
+                  </button>
+                  {reminderLists.map((list) => (
+                    <button
+                      key={list.id}
+                      type="button"
+                      className={styles.addMenuItem}
+                      role="menuitem"
+                      onClick={() => {
+                        setShowAddMenu(false);
+                        onAddWidget({
+                          type: "reminders-list",
+                          listId: list.id,
+                          listName: list.name,
+                        });
+                      }}
+                    >
+                      🏷️ {list.name}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </section>
@@ -314,14 +381,70 @@ export function DashboardScreen({
             Fin de journée
           </Button>
           {onAddWidget && isEditing ? (
-            <>
-              <Button variant="primary" onClick={() => onAddWidget("reminders")}>
-                + Widget Rappels
+            <div className={styles.addMenuContainer}>
+              <Button
+                variant="primary"
+                onClick={() => setShowAddMenu((prev) => !prev)}
+                aria-expanded={showAddMenu}
+              >
+                + Ajouter un widget
               </Button>
-              <Button variant="secondary" onClick={() => onAddWidget("agenda")}>
-                + Widget Agenda
-              </Button>
-            </>
+              {showAddMenu ? (
+                <div className={styles.addMenuDropdown} role="menu">
+                  <button
+                    type="button"
+                    className={styles.addMenuItem}
+                    role="menuitem"
+                    onClick={() => {
+                      setShowAddMenu(false);
+                      onAddWidget("agenda");
+                    }}
+                  >
+                    📅 Agenda
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.addMenuItem}
+                    role="menuitem"
+                    onClick={() => {
+                      setShowAddMenu(false);
+                      onAddWidget({ type: "reminders-all" });
+                    }}
+                  >
+                    📋 Toutes les tâches
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.addMenuItem}
+                    role="menuitem"
+                    onClick={() => {
+                      setShowAddMenu(false);
+                      onAddWidget({ type: "reminders-today" });
+                    }}
+                  >
+                    ☀️ Ma journée
+                  </button>
+                  {reminderLists.map((list) => (
+                    <button
+                      key={list.id}
+                      type="button"
+                      className={styles.addMenuItem}
+                      role="menuitem"
+                      onClick={() => {
+                        setShowAddMenu(false);
+                        onAddWidget({
+                          type: "reminders-list",
+                          listId: list.id,
+                          listName: list.name,
+                        });
+                      }}
+                    >
+                      🏷️ {list.name}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </header>
@@ -385,6 +508,39 @@ export function DashboardScreen({
                 <h2 className={styles.cardTitle} id={`${widget.id}-title`}>
                   {widget.title ?? MODULE_LABEL[widget.module]}
                 </h2>
+                {isEditing && widget.module === "reminders" && onChangeWidgetList ? (
+                  <select
+                    className={styles.listSelect}
+                    aria-label={`Changer la liste pour ${widget.title}`}
+                    value={
+                      view?.filter &&
+                      typeof view.filter === "object" &&
+                      "listIds" in view.filter &&
+                      Array.isArray(view.filter.listIds) &&
+                      view.filter.listIds[0]
+                        ? view.filter.listIds[0]
+                        : view?.filter &&
+                            typeof view.filter === "object" &&
+                            "dueWithinDays" in view.filter
+                          ? "__my_day__"
+                          : ""
+                    }
+                    onChange={(event) =>
+                      void onChangeWidgetList(
+                        widget.id,
+                        event.target.value === "" ? null : event.target.value,
+                      )
+                    }
+                  >
+                    <option value="">Toutes les tâches</option>
+                    <option value="__my_day__">Ma journée</option>
+                    {reminderLists.map((list) => (
+                      <option key={list.id} value={list.id}>
+                        {list.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
               </div>
               {!view ? (
                 <p className={styles.cardWarning} role="status">
@@ -436,42 +592,6 @@ export function DashboardScreen({
                     <Button size="sm" variant="ghost" onClick={() => onToggleWidget(widget.id)}>
                       {widget.enabled ? "Désactiver" : "Activer"}
                     </Button>
-                  ) : null}
-                  {onMoveWidget ? (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        aria-label={`Monter ${widget.title ?? MODULE_LABEL[widget.module]}`}
-                        onClick={() => onMoveWidget(widget.id, "up")}
-                      >
-                        ↑
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        aria-label={`Descendre ${widget.title ?? MODULE_LABEL[widget.module]}`}
-                        onClick={() => onMoveWidget(widget.id, "down")}
-                      >
-                        ↓
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        aria-label={`Décaler à gauche ${widget.title ?? MODULE_LABEL[widget.module]}`}
-                        onClick={() => onMoveWidget(widget.id, "left")}
-                      >
-                        ←
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        aria-label={`Décaler à droite ${widget.title ?? MODULE_LABEL[widget.module]}`}
-                        onClick={() => onMoveWidget(widget.id, "right")}
-                      >
-                        →
-                      </Button>
-                    </>
                   ) : null}
                   {onRemoveWidget ? (
                     <Button size="sm" variant="ghost" onClick={() => onRemoveWidget(widget.id)}>

@@ -24,7 +24,7 @@ import { keyWarnings } from "../../lib/warnings";
 import { useAppStore } from "../../stores/app.store";
 import styles from "./CalendarScreen.module.css";
 
-export type CalendarViewMode = "day" | "week" | "month" | "list";
+export type CalendarViewMode = "day" | "threeDays" | "week" | "month" | "year" | "list";
 
 export interface CalendarScreenProps {
   /** Instant injecté (tests) ; par défaut l'horloge de l'écran. */
@@ -51,6 +51,55 @@ function splitLocalInput(value: string): { date: string; time: string } | null {
   const match = value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})$/);
   if (!match) return null;
   return { date: match[1] ?? "", time: match[2] ?? "" };
+}
+
+const HOURS = [
+  "07:00",
+  "08:00",
+  "09:00",
+  "10:00",
+  "11:00",
+  "12:00",
+  "13:00",
+  "14:00",
+  "15:00",
+  "16:00",
+  "17:00",
+  "18:00",
+  "19:00",
+  "20:00",
+  "21:00",
+  "22:00",
+] as const;
+
+const MINI_WEEKDAYS = [
+  { key: "mon", label: "L" },
+  { key: "tue", label: "M" },
+  { key: "wed", label: "M" },
+  { key: "thu", label: "J" },
+  { key: "fri", label: "V" },
+  { key: "sat", label: "S" },
+  { key: "sun", label: "D" },
+] as const;
+
+const MONTH_INDEXES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] as const;
+
+function getEventStartHour(item: CalendarItem, timeZone: string): number | null {
+  if ("date" in item.start) return null;
+  const input = instantToLocalInput(item.start.dateTime, item.start.timeZone || timeZone);
+  const split = splitLocalInput(input);
+  if (!split) return null;
+  return Number(split.time.split(":")[0]);
+}
+
+function getDayNumber(date: LocalDate): number {
+  return Number(date.split("-")[2]);
+}
+
+function getWeekdayShort(date: LocalDate, locale: string): string {
+  const [y, m, d] = date.split("-").map(Number) as [number, number, number];
+  const obj = new Date(Date.UTC(y, m - 1, d));
+  return new Intl.DateTimeFormat(locale, { weekday: "short", timeZone: "UTC" }).format(obj);
 }
 
 /**
@@ -92,9 +141,18 @@ export function CalendarScreen({
   const [viewMode, setViewMode] = useState<CalendarViewMode>("list");
   const [anchorDate, setAnchorDate] = useState<LocalDate>(startDate);
 
+  const todayDate =
+    injectedLogicalDate ??
+    (config && dayState
+      ? logicalDay(now, config.dayStartHour, timeZone)
+      : formatLocalDate(now, timeZone));
+
   const range = useMemo(() => {
     if (viewMode === "day") {
       return { from: anchorDate, to: anchorDate };
+    }
+    if (viewMode === "threeDays") {
+      return { from: anchorDate, to: addDays(anchorDate, 2) };
     }
     if (viewMode === "week") {
       const start = weekStartFor(anchorDate, 1);
@@ -105,7 +163,13 @@ export function CalendarScreen({
       const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
       const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
       const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
-      return { from: monthStart, to: monthEnd };
+      const gridStart = weekStartFor(monthStart, 1);
+      const gridEnd = addDays(weekStartFor(monthEnd, 1), 6);
+      return { from: gridStart, to: gridEnd };
+    }
+    if (viewMode === "year") {
+      const year = anchorDate.slice(0, 4);
+      return { from: `${year}-01-01`, to: `${year}-12-31` };
     }
     return { from: anchorDate, to: addDays(anchorDate, rangeDays) };
   }, [viewMode, anchorDate, rangeDays]);
@@ -113,6 +177,8 @@ export function CalendarScreen({
   const handlePrev = () => {
     if (viewMode === "day") {
       setAnchorDate(addDays(anchorDate, -1));
+    } else if (viewMode === "threeDays") {
+      setAnchorDate(addDays(anchorDate, -3));
     } else if (viewMode === "week") {
       setAnchorDate(addDays(anchorDate, -7));
     } else if (viewMode === "month") {
@@ -121,6 +187,11 @@ export function CalendarScreen({
       const y = shifted.getUTCFullYear();
       const m = String(shifted.getUTCMonth() + 1).padStart(2, "0");
       setAnchorDate(`${y}-${m}-01`);
+    } else if (viewMode === "year") {
+      const [year, month, day] = anchorDate.split("-").map(Number) as [number, number, number];
+      setAnchorDate(
+        `${year - 1}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+      );
     } else {
       setAnchorDate(addDays(anchorDate, -30));
     }
@@ -129,6 +200,8 @@ export function CalendarScreen({
   const handleNext = () => {
     if (viewMode === "day") {
       setAnchorDate(addDays(anchorDate, 1));
+    } else if (viewMode === "threeDays") {
+      setAnchorDate(addDays(anchorDate, 3));
     } else if (viewMode === "week") {
       setAnchorDate(addDays(anchorDate, 7));
     } else if (viewMode === "month") {
@@ -137,17 +210,17 @@ export function CalendarScreen({
       const y = shifted.getUTCFullYear();
       const m = String(shifted.getUTCMonth() + 1).padStart(2, "0");
       setAnchorDate(`${y}-${m}-01`);
+    } else if (viewMode === "year") {
+      const [year, month, day] = anchorDate.split("-").map(Number) as [number, number, number];
+      setAnchorDate(
+        `${year + 1}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+      );
     } else {
       setAnchorDate(addDays(anchorDate, 30));
     }
   };
 
   const handleToday = () => {
-    const todayDate =
-      injectedLogicalDate ??
-      (config && dayState
-        ? logicalDay(now, config.dayStartHour, timeZone)
-        : formatLocalDate(now, timeZone));
     setAnchorDate(todayDate);
   };
 
@@ -201,6 +274,10 @@ export function CalendarScreen({
     if (viewMode === "day") {
       return formatLocalDateLong(anchorDate, locale);
     }
+    if (viewMode === "threeDays") {
+      const end = addDays(anchorDate, 2);
+      return `${formatLocalDateLong(anchorDate, locale)} au ${formatLocalDateLong(end, locale)}`;
+    }
     if (viewMode === "week") {
       return `Semaine du ${formatLocalDateLong(range.from, locale)} au ${formatLocalDateLong(range.to, locale)}`;
     }
@@ -213,8 +290,52 @@ export function CalendarScreen({
         timeZone: "UTC",
       }).format(dateObj);
     }
+    if (viewMode === "year") {
+      return anchorDate.slice(0, 4);
+    }
     return "Jour et 30 jours suivants";
   }, [viewMode, anchorDate, range, locale]);
+
+  const currentHourMinute = useMemo(() => {
+    const input = instantToLocalInput(now, timeZone);
+    const split = splitLocalInput(input);
+    if (!split) return null;
+    const [h, m] = split.time.split(":").map(Number) as [number, number];
+    return { hour: h, minute: m, date: split.date };
+  }, [now, timeZone]);
+
+  const nowPercent = useMemo(() => {
+    if (!currentHourMinute) return null;
+    const { hour, minute } = currentHourMinute;
+    if (hour < 7 || hour > 22) return null;
+    return (((hour - 7) * 60 + minute) / (16 * 60)) * 100;
+  }, [currentHourMinute]);
+
+  const monthGridDays = useMemo(() => {
+    if (viewMode !== "month") return [];
+    const [year, month] = anchorDate.split("-").map(Number) as [number, number];
+    const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
+    const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
+    const gridStart = weekStartFor(monthStart, 1);
+    const gridEnd = addDays(weekStartFor(monthEnd, 1), 6);
+    const days: LocalDate[] = [];
+    for (let c = gridStart; c <= gridEnd; c = addDays(c, 1)) {
+      days.push(c);
+    }
+    return days;
+  }, [viewMode, anchorDate]);
+
+  const multiDays = useMemo(() => {
+    if (viewMode === "threeDays") {
+      return [anchorDate, addDays(anchorDate, 1), addDays(anchorDate, 2)];
+    }
+    if (viewMode === "week") {
+      const start = weekStartFor(anchorDate, 1);
+      return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+    }
+    return [];
+  }, [viewMode, anchorDate]);
 
   const loading = agenda.status === "loading" || agenda.status === "idle";
 
@@ -400,6 +521,107 @@ export function CalendarScreen({
     }
   };
 
+  const renderEventCard = (item: CalendarItem, date: LocalDate, compact = false) => {
+    const key = isLocalCalendarEvent(item) ? item.id : `${item.uid}:${date}`;
+    const localId = isLocalCalendarEvent(item) ? item.id : null;
+    const isConfirming = localId !== null && confirmingId === localId;
+
+    return (
+      <li className={`${styles.item} ${compact ? styles.itemCompact : ""}`} key={`${date}:${key}`}>
+        <div className={styles.itemMain}>
+          <div className={styles.itemBody}>
+            <div className={styles.itemHeaderLine}>
+              <h4 className={styles.itemTitle}>{item.title}</h4>
+              {isLocalCalendarEvent(item) ? (
+                <button
+                  type="button"
+                  className={styles.infoButton}
+                  data-testid="calendar-info-btn"
+                  aria-label={`Inspecter « ${item.title} »`}
+                  onClick={() => beginEdit(item)}
+                >
+                  <span aria-hidden="true">ⓘ</span>
+                </button>
+              ) : null}
+            </div>
+            <p className={styles.itemMeta}>
+              <span className={styles.timeBadge}>{eventTimeLabel(item, locale)}</span>
+              {item.location ? <span className={styles.location}>{item.location}</span> : null}
+              {item.status !== "confirmed" ? (
+                <span className={styles.statusBadge}>
+                  {item.status === "cancelled" ? "Annulé" : "Tentative"}
+                </span>
+              ) : null}
+            </p>
+            {!compact && item.description ? (
+              <p className={styles.description}>{item.description}</p>
+            ) : null}
+          </div>
+        </div>
+
+        {isLocalCalendarEvent(item) ? (
+          <div className={styles.itemActions}>
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={`Modifier « ${item.title} »`}
+              onClick={() => beginEdit(item)}
+            >
+              Modifier
+            </Button>
+            {isConfirming ? (
+              <div
+                className={styles.confirm}
+                role="alertdialog"
+                aria-labelledby={`confirm-title-${item.id}`}
+              >
+                <p className={styles.confirmTitle} id={`confirm-title-${item.id}`}>
+                  Supprimer « {item.title} » ?
+                </p>
+                <p className={styles.confirmDetail}>
+                  L'événement sera déplacé dans la corbeille du vault.
+                </p>
+                <div className={styles.formActions}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    autoFocus
+                    disabled={deletingId === item.id}
+                    onClick={() => void remove(item.id)}
+                  >
+                    {deletingId === item.id ? "Suppression…" : "Confirmer la suppression"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={deletingId === item.id}
+                    onClick={() => setConfirmingId(null)}
+                  >
+                    Annuler
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-label={`Supprimer « ${item.title} »`}
+                onClick={() => {
+                  setNotice(null);
+                  setConfirmingId(item.id);
+                }}
+              >
+                Supprimer
+              </Button>
+            )}
+          </div>
+        ) : (
+          <p className={styles.readOnly}>Flux externe — lecture seule</p>
+        )}
+      </li>
+    );
+  };
+
   return (
     <section className={styles.screen} aria-labelledby={titleId}>
       <header className={styles.header}>
@@ -422,28 +644,27 @@ export function CalendarScreen({
           aria-label="Vues du calendrier"
           data-view-mode={viewMode}
         >
-          {(["day", "week", "month", "list"] as const).map((mode) => {
-            const label =
-              mode === "day"
-                ? "Jour"
-                : mode === "week"
-                  ? "Semaine"
-                  : mode === "month"
-                    ? "Mois"
-                    : "Liste";
-            return (
-              <Button
-                key={mode}
-                size="sm"
-                variant={viewMode === mode ? "primary" : "secondary"}
-                role="tab"
-                aria-selected={viewMode === mode}
-                onClick={() => setViewMode(mode)}
-              >
-                {label}
-              </Button>
-            );
-          })}
+          {(
+            [
+              { mode: "day", label: "Jour" },
+              { mode: "threeDays", label: "3 jours" },
+              { mode: "week", label: "Semaine" },
+              { mode: "month", label: "Mois" },
+              { mode: "year", label: "Année" },
+              { mode: "list", label: "Liste" },
+            ] as const
+          ).map(({ mode, label }) => (
+            <Button
+              key={mode}
+              size="sm"
+              variant={viewMode === mode ? "primary" : "secondary"}
+              role="tab"
+              aria-selected={viewMode === mode}
+              onClick={() => setViewMode(mode)}
+            >
+              {label}
+            </Button>
+          ))}
         </div>
 
         <div className={styles.navControls}>
@@ -690,20 +911,16 @@ export function CalendarScreen({
           <p className={styles.empty} role="status" aria-live="polite">
             Chargement des événements…
           </p>
-        ) : groups.length === 0 ||
-          (groups.every((g) => g.items.length === 0) && viewMode === "list") ? (
+        ) : viewMode === "list" &&
+          (groups.length === 0 || groups.every((g) => g.items.length === 0)) ? (
           <div className={styles.empty} role="status">
-            <p>
-              {viewMode === "list"
-                ? "Aucun événement du jour ni dans les 30 jours suivants."
-                : "Aucun événement dans la période affichée."}
-            </p>
+            <p>Aucun événement du jour ni dans les 30 jours suivants.</p>
             <p className={styles.emptyHint}>
               Ajoutez un événement avec le formulaire ci-dessus ; il sera enregistré dans le
               calendrier local du vault.
             </p>
           </div>
-        ) : (
+        ) : viewMode === "list" ? (
           <div className={styles.days} data-testid="calendar-grid">
             {groups.map((group) => (
               <section
@@ -711,129 +928,321 @@ export function CalendarScreen({
                 key={group.date}
                 aria-labelledby={`day-${group.date}`}
               >
-                <h3 className={styles.dayTitle} id={`day-${group.date}`}>
-                  {formatLocalDateLong(group.date, locale)}
-                </h3>
+                <div className={styles.dayHeaderRow}>
+                  <span
+                    className={group.date === todayDate ? styles.todayBadge : styles.dateCircle}
+                  >
+                    {getDayNumber(group.date)}
+                  </span>
+                  <h3 className={styles.dayTitle} id={`day-${group.date}`}>
+                    {formatLocalDateLong(group.date, locale)}
+                  </h3>
+                </div>
                 {group.items.length === 0 ? (
                   <p className={styles.emptyHint}>Aucun événement ce jour.</p>
                 ) : (
                   <ul className={styles.items}>
-                    {group.items.map((item) => {
-                      const key = isLocalCalendarEvent(item)
-                        ? item.id
-                        : `${item.uid}:${group.date}`;
-                      const localId = isLocalCalendarEvent(item) ? item.id : null;
-                      const isConfirming = localId !== null && confirmingId === localId;
-                      return (
-                        <li className={styles.item} key={`${group.date}:${key}`}>
-                          <div className={styles.itemMain}>
-                            <div className={styles.itemBody}>
-                              <div className={styles.itemHeaderLine}>
-                                <h4 className={styles.itemTitle}>{item.title}</h4>
-                                {isLocalCalendarEvent(item) ? (
-                                  <button
-                                    type="button"
-                                    className={styles.infoButton}
-                                    data-testid="calendar-info-btn"
-                                    aria-label={`Inspecter « ${item.title} »`}
-                                    onClick={() => beginEdit(item)}
-                                  >
-                                    <span aria-hidden="true">ⓘ</span>
-                                  </button>
-                                ) : null}
-                              </div>
-                              <p className={styles.itemMeta}>
-                                <span className={styles.timeBadge}>
-                                  {eventTimeLabel(item, locale)}
-                                </span>
-                                {item.location ? (
-                                  <span className={styles.location}>{item.location}</span>
-                                ) : null}
-                                {item.status !== "confirmed" ? (
-                                  <span className={styles.statusBadge}>
-                                    {item.status === "cancelled" ? "Annulé" : "Tentative"}
-                                  </span>
-                                ) : null}
-                              </p>
-                              {item.description ? (
-                                <p className={styles.description}>{item.description}</p>
-                              ) : null}
-                            </div>
-                          </div>
-
-                          {isLocalCalendarEvent(item) ? (
-                            <div className={styles.itemActions}>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                aria-label={`Modifier « ${item.title} »`}
-                                onClick={() => beginEdit(item)}
-                              >
-                                Modifier
-                              </Button>
-                              {isConfirming ? (
-                                <div
-                                  className={styles.confirm}
-                                  role="alertdialog"
-                                  aria-labelledby={`confirm-title-${item.id}`}
-                                >
-                                  <p
-                                    className={styles.confirmTitle}
-                                    id={`confirm-title-${item.id}`}
-                                  >
-                                    Supprimer « {item.title} » ?
-                                  </p>
-                                  <p className={styles.confirmDetail}>
-                                    L'événement sera déplacé dans la corbeille du vault.
-                                  </p>
-                                  <div className={styles.formActions}>
-                                    <Button
-                                      size="sm"
-                                      variant="secondary"
-                                      autoFocus
-                                      disabled={deletingId === item.id}
-                                      onClick={() => void remove(item.id)}
-                                    >
-                                      {deletingId === item.id
-                                        ? "Suppression…"
-                                        : "Confirmer la suppression"}
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      disabled={deletingId === item.id}
-                                      onClick={() => setConfirmingId(null)}
-                                    >
-                                      Annuler
-                                    </Button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  aria-label={`Supprimer « ${item.title} »`}
-                                  onClick={() => {
-                                    setNotice(null);
-                                    setConfirmingId(item.id);
-                                  }}
-                                >
-                                  Supprimer
-                                </Button>
-                              )}
-                            </div>
-                          ) : (
-                            <p className={styles.readOnly}>Flux externe — lecture seule</p>
-                          )}
-                        </li>
-                      );
-                    })}
+                    {group.items.map((item) => renderEventCard(item, group.date))}
                   </ul>
                 )}
               </section>
             ))}
           </div>
-        )}
+        ) : viewMode === "day" ? (
+          <div className={styles.timelineContainer} data-testid="calendar-grid">
+            <div className={styles.dayViewHeader}>
+              <span
+                className={
+                  anchorDate === todayDate ? styles.todayBadgeLarge : styles.dateCircleLarge
+                }
+              >
+                {getDayNumber(anchorDate)}
+              </span>
+              <div>
+                <h3 className={styles.dayViewTitle}>{formatLocalDateLong(anchorDate, locale)}</h3>
+                <p className={styles.dayViewSubtitle}>
+                  {anchorDate === todayDate ? "Aujourd'hui" : getWeekdayShort(anchorDate, locale)}
+                </p>
+              </div>
+            </div>
+
+            {(() => {
+              const dayEvents = eventsOnDate(agenda.items, anchorDate);
+              const allDayItems = dayEvents.filter((item) => "date" in item.start);
+              const timedItems = dayEvents.filter((item) => !("date" in item.start));
+              const outsideHoursItems = timedItems.filter((item) => {
+                const h = getEventStartHour(item, timeZone);
+                return h === null || h < 7 || h > 22;
+              });
+
+              return (
+                <>
+                  {allDayItems.length > 0 && (
+                    <div className={styles.allDaySection}>
+                      <span className={styles.allDayLabel}>Journée entière</span>
+                      <ul className={styles.allDayItems}>
+                        {allDayItems.map((item) => renderEventCard(item, anchorDate, true))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <div className={styles.timelineGrid}>
+                    {anchorDate === todayDate && nowPercent !== null && (
+                      <div className={styles.currentTimeLine} style={{ top: `${nowPercent}%` }}>
+                        <span className={styles.currentTimeDot} />
+                      </div>
+                    )}
+
+                    {HOURS.map((hourStr, idx) => {
+                      const hourNum = 7 + idx;
+                      const hourEvents = timedItems.filter(
+                        (item) => getEventStartHour(item, timeZone) === hourNum,
+                      );
+                      return (
+                        <div key={hourStr} className={styles.timelineRow}>
+                          <div className={styles.timelineGutter}>{hourStr}</div>
+                          <div className={styles.timelineSlot}>
+                            {hourEvents.length > 0 && (
+                              <ul className={styles.slotItems}>
+                                {hourEvents.map((item) => renderEventCard(item, anchorDate))}
+                              </ul>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {outsideHoursItems.length > 0 && (
+                    <div className={styles.outsideHoursSection}>
+                      <span className={styles.outsideHoursLabel}>Autres horaires</span>
+                      <ul className={styles.items}>
+                        {outsideHoursItems.map((item) => renderEventCard(item, anchorDate))}
+                      </ul>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        ) : viewMode === "threeDays" || viewMode === "week" ? (
+          <div className={styles.multiDayContainer} data-testid="calendar-grid">
+            <div
+              className={styles.multiDayHeaderRow}
+              style={{
+                gridTemplateColumns: `56px repeat(${multiDays.length}, minmax(0, 1fr))`,
+              }}
+            >
+              <div className={styles.timelineGutterHeader} />
+              {multiDays.map((d) => (
+                <div key={d} className={styles.multiDayHeaderCell}>
+                  <span className={styles.multiDayWeekday}>{getWeekdayShort(d, locale)}</span>
+                  <button
+                    type="button"
+                    className={d === todayDate ? styles.todayBadge : styles.dateCircleBtn}
+                    onClick={() => {
+                      setAnchorDate(d);
+                      setViewMode("day");
+                    }}
+                    title={`Voir ${formatLocalDateLong(d, locale)}`}
+                  >
+                    {getDayNumber(d)}
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {multiDays.some((d) =>
+              eventsOnDate(agenda.items, d).some((it) => "date" in it.start),
+            ) && (
+              <div
+                className={styles.multiDayAllDayRow}
+                style={{
+                  gridTemplateColumns: `56px repeat(${multiDays.length}, minmax(0, 1fr))`,
+                }}
+              >
+                <div className={styles.allDayLabel}>Journée</div>
+                {multiDays.map((d) => {
+                  const dayAllDay = eventsOnDate(agenda.items, d).filter(
+                    (it) => "date" in it.start,
+                  );
+                  return (
+                    <div key={d} className={styles.multiDayAllDayCell}>
+                      {dayAllDay.map((item) => renderEventCard(item, d, true))}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className={styles.multiDayTimelineGrid}>
+              {HOURS.map((hourStr, idx) => {
+                const hourNum = 7 + idx;
+                return (
+                  <div
+                    key={hourStr}
+                    className={styles.multiDayTimelineRow}
+                    style={{
+                      gridTemplateColumns: `56px repeat(${multiDays.length}, minmax(0, 1fr))`,
+                    }}
+                  >
+                    <div className={styles.timelineGutter}>{hourStr}</div>
+                    {multiDays.map((d) => {
+                      const dayEvents = eventsOnDate(agenda.items, d)
+                        .filter((it) => !("date" in it.start))
+                        .filter((it) => getEventStartHour(it, timeZone) === hourNum);
+                      const isTodayCol = d === todayDate;
+                      return (
+                        <div key={d} className={styles.multiDaySlotCell}>
+                          {isTodayCol &&
+                            currentHourMinute?.date === d &&
+                            currentHourMinute.hour === hourNum && (
+                              <div
+                                className={styles.currentTimeLineCell}
+                                style={{
+                                  top: `${((currentHourMinute.minute ?? 0) / 60) * 100}%`,
+                                }}
+                              />
+                            )}
+                          {dayEvents.map((item) => renderEventCard(item, d, true))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : viewMode === "month" ? (
+          <div className={styles.monthViewContainer} data-testid="calendar-grid">
+            <div className={styles.monthWeekdayHeader}>
+              {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((w) => (
+                <div key={w} className={styles.monthWeekdayCell}>
+                  {w}
+                </div>
+              ))}
+            </div>
+
+            <div className={styles.monthGrid}>
+              {monthGridDays.map((d) => {
+                const isCurrentMonth = d.slice(0, 7) === anchorDate.slice(0, 7);
+                const isTodayCell = d === todayDate;
+                const dayEvents = eventsOnDate(agenda.items, d);
+
+                return (
+                  <div
+                    key={d}
+                    className={`${styles.monthDayCell} ${!isCurrentMonth ? styles.otherMonthDay : ""}`}
+                  >
+                    <div className={styles.monthDayCellHeader}>
+                      <button
+                        type="button"
+                        className={isTodayCell ? styles.todayBadge : styles.monthDayNumberBtn}
+                        onClick={() => {
+                          setAnchorDate(d);
+                          setViewMode("day");
+                        }}
+                        title={`Voir ${formatLocalDateLong(d, locale)}`}
+                      >
+                        {getDayNumber(d)}
+                      </button>
+                    </div>
+                    <div className={styles.monthDayEventsList}>
+                      {dayEvents.slice(0, 3).map((item) => renderEventCard(item, d, true))}
+                      {dayEvents.length > 3 && (
+                        <span className={styles.moreEventsBadge}>
+                          +{dayEvents.length - 3} autre(s)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : viewMode === "year" ? (
+          <div className={styles.yearViewContainer} data-testid="calendar-grid">
+            <div className={styles.yearGrid}>
+              {MONTH_INDEXES.map((monthIdx) => {
+                const yearNum = Number(anchorDate.slice(0, 4));
+                const monthObj = new Date(Date.UTC(yearNum, monthIdx, 1));
+                const monthName = new Intl.DateTimeFormat(locale, {
+                  month: "long",
+                  timeZone: "UTC",
+                }).format(monthObj);
+                const firstDayWeekday = (monthObj.getUTCDay() + 6) % 7;
+                const daysInMonth = new Date(Date.UTC(yearNum, monthIdx + 1, 0)).getUTCDate();
+
+                return (
+                  <div key={monthName} className={styles.yearMonthCard}>
+                    <button
+                      type="button"
+                      className={styles.yearMonthTitleBtn}
+                      onClick={() => {
+                        const mStr = String(monthIdx + 1).padStart(2, "0");
+                        setAnchorDate(`${yearNum}-${mStr}-01`);
+                        setViewMode("month");
+                      }}
+                    >
+                      {monthName}
+                    </button>
+                    <div className={styles.yearMiniWeekdayHeader}>
+                      {MINI_WEEKDAYS.map((mw) => (
+                        <span key={mw.key} className={styles.yearMiniWeekday}>
+                          {mw.label}
+                        </span>
+                      ))}
+                    </div>
+                    <div className={styles.yearMiniDaysGrid}>
+                      {Array.from({ length: firstDayWeekday }, (_, emptyIdx) => {
+                        const emptyKey = `empty-${monthName}-${emptyIdx + 1}`;
+                        return <span key={emptyKey} className={styles.yearMiniEmptyDay} />;
+                      })}
+                      {Array.from({ length: daysInMonth }, (_, dayOffset) => {
+                        const dayNum = dayOffset + 1;
+                        const dayStr = `${yearNum}-${String(monthIdx + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
+                        const isTodayYearDay = dayStr === todayDate;
+                        const dayEvts = eventsOnDate(agenda.items, dayStr);
+                        const hasEvts = dayEvts.length > 0;
+
+                        return (
+                          <button
+                            key={dayNum}
+                            type="button"
+                            className={`${styles.yearMiniDayBtn} ${isTodayYearDay ? styles.todayBadgeMini : ""}`}
+                            onClick={() => {
+                              setAnchorDate(dayStr);
+                              setViewMode("day");
+                            }}
+                            title={`${dayNum} ${monthName} ${hasEvts ? `(${dayEvts.length} événement(s))` : ""}`}
+                          >
+                            <span className={styles.yearMiniDayNum}>{dayNum}</span>
+                            {hasEvts && <span className={styles.yearEventDot} />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className={styles.yearSummarySection}>
+              <h3 className={styles.yearSummaryTitle}>
+                Événements de l'année {anchorDate.slice(0, 4)}
+              </h3>
+              {groups.filter((g) => g.items.length > 0).length === 0 ? (
+                <p className={styles.emptyHint}>Aucun événement cette année.</p>
+              ) : (
+                <ul className={styles.items}>
+                  {groups
+                    .filter((g) => g.items.length > 0)
+                    .flatMap((g) => g.items.map((item) => renderEventCard(item, g.date, true)))}
+                </ul>
+              )}
+            </div>
+          </div>
+        ) : null}
       </section>
     </section>
   );

@@ -337,7 +337,7 @@ describe("CalendarScreen — avertissements et états", () => {
 });
 
 describe("CalendarScreen — vues multiples et navigation", () => {
-  it("permet de basculer entre les vues Jour, Semaine, Mois et Liste et navigue dans le temps", async () => {
+  it("permet de basculer entre les vues Jour, 3 jours, Semaine, Mois, Année et Liste et navigue dans le temps", async () => {
     const user = userEvent.setup();
     const existing = event({ start: { date: "2026-10-27" }, end: { date: "2026-10-28" } });
     setup([existing]);
@@ -347,8 +347,10 @@ describe("CalendarScreen — vues multiples et navigation", () => {
 
     // Boutons de vues
     const dayTab = screen.getByRole("tab", { name: "Jour" });
+    const threeDaysTab = screen.getByRole("tab", { name: "3 jours" });
     const weekTab = screen.getByRole("tab", { name: "Semaine" });
     const monthTab = screen.getByRole("tab", { name: "Mois" });
+    const yearTab = screen.getByRole("tab", { name: "Année" });
     const listTab = screen.getByRole("tab", { name: "Liste" });
 
     expect(listTab).toHaveAttribute("aria-selected", "true");
@@ -356,6 +358,11 @@ describe("CalendarScreen — vues multiples et navigation", () => {
     // Basculer en vue Jour
     await user.click(dayTab);
     expect(dayTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Réunion")).toBeInTheDocument();
+
+    // Basculer en vue 3 jours
+    await user.click(threeDaysTab);
+    expect(threeDaysTab).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("Réunion")).toBeInTheDocument();
 
     // Basculer en vue Semaine
@@ -368,6 +375,13 @@ describe("CalendarScreen — vues multiples et navigation", () => {
     expect(monthTab).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("octobre 2026")).toBeInTheDocument();
 
+    // Basculer en vue Année
+    await user.click(yearTab);
+    expect(yearTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("2026")).toBeInTheDocument();
+    expect(screen.getByText("janvier")).toBeInTheDocument();
+    expect(screen.getByText("décembre")).toBeInTheDocument();
+
     // Basculer en vue Liste
     await user.click(listTab);
     expect(listTab).toHaveAttribute("aria-selected", "true");
@@ -376,5 +390,37 @@ describe("CalendarScreen — vues multiples et navigation", () => {
     await user.click(screen.getByRole("button", { name: /période précédente/i }));
     await user.click(screen.getByRole("button", { name: "Aujourd'hui" }));
     await user.click(screen.getByRole("button", { name: /période suivante/i }));
+  });
+
+  it("ouvre la vue jour lorsqu'on clique sur un jour depuis la vue mois ou année", async () => {
+    const user = userEvent.setup();
+    const existing = event({ start: { date: "2026-10-27" }, end: { date: "2026-10-28" } });
+    setup([existing]);
+    renderScreen();
+
+    expect(await screen.findByText("Réunion")).toBeInTheDocument();
+
+    // Aller en vue mois
+    await user.click(screen.getByRole("tab", { name: "Mois" }));
+    expect(screen.getByRole("tab", { name: "Mois" })).toHaveAttribute("aria-selected", "true");
+
+    // Cliquer sur le bouton du jour 27
+    const day27Btn = screen.getByRole("button", { name: "27" });
+    await user.click(day27Btn);
+
+    // Bascule en vue Jour
+    expect(screen.getByRole("tab", { name: "Jour" })).toHaveAttribute("aria-selected", "true");
+    expect(
+      screen.getAllByRole("heading", { name: /27 octobre 2026/ }).length,
+    ).toBeGreaterThanOrEqual(1);
+
+    // Aller en vue année
+    await user.click(screen.getByRole("tab", { name: "Année" }));
+    expect(screen.getByRole("tab", { name: "Année" })).toHaveAttribute("aria-selected", "true");
+
+    // Cliquer sur le mois 'décembre' bascule en vue mois
+    await user.click(screen.getByRole("button", { name: "décembre" }));
+    expect(screen.getByRole("tab", { name: "Mois" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("décembre 2026")).toBeInTheDocument();
   });
 });
