@@ -1,6 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { configureIpc, resetIpc } from "../../lib/ipc";
+import { createMockIpc } from "../../lib/ipc/mock";
 import { SettingsScreen } from "./SettingsScreen";
 
 function renderSettings(overrides: Partial<Parameters<typeof SettingsScreen>[0]> = {}) {
@@ -19,6 +21,11 @@ function renderSettings(overrides: Partial<Parameters<typeof SettingsScreen>[0]>
 }
 
 describe("SettingsScreen", () => {
+  beforeEach(() => {
+    resetIpc();
+    configureIpc(createMockIpc());
+  });
+
   it("affiche le titre, le vault actuel, les réglages et les crédits", () => {
     renderSettings();
 
@@ -64,5 +71,62 @@ describe("SettingsScreen", () => {
   it("affiche le réglage coché si openDashboardOnLaunch est vrai", () => {
     renderSettings({ openDashboardOnLaunch: true });
     expect(screen.getByRole("checkbox", { name: "Ouvrir directement le dashboard" })).toBeChecked();
+  });
+
+  it("change de thème depuis la carte Apparence", async () => {
+    const user = userEvent.setup();
+    const onThemeChange = vi.fn();
+    renderSettings({ theme: "auto", onThemeChange });
+
+    expect(screen.getByRole("heading", { name: "Apparence" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Automatique" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Sombre" }));
+    expect(onThemeChange).toHaveBeenCalledWith("dark");
+  });
+
+  it("change la couleur d'accent et marque l'accent courant", async () => {
+    const user = userEvent.setup();
+    const onAccentColorChange = vi.fn();
+    renderSettings({ accentColor: "#c2703d", onAccentColorChange });
+
+    expect(screen.getByRole("button", { name: "Cuivre" })).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(screen.getByRole("button", { name: "Sauge" }));
+    expect(onAccentColorChange).toHaveBeenCalledWith("#9fae7a");
+  });
+
+  it("propose les accents système dans leur propre groupe", () => {
+    renderSettings({ accentColor: "#0a84ff" });
+
+    expect(screen.getByText("Couleurs du système")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Bleu" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("bascule vers la couleur du système et désactive les pastilles", async () => {
+    const user = userEvent.setup();
+    const onFollowSystemAccentChange = vi.fn();
+    renderSettings({
+      systemAccentColor: "#0a84ff",
+      followSystemAccent: false,
+      onFollowSystemAccentChange,
+    });
+
+    await user.click(screen.getByRole("checkbox", { name: "Suivre la couleur du système" }));
+    expect(onFollowSystemAccentChange).toHaveBeenCalledWith(true);
+  });
+
+  it("désactive les pastilles quand le système pilote l'accent", () => {
+    renderSettings({
+      systemAccentColor: "#0a84ff",
+      followSystemAccent: true,
+      onAccentColorChange: vi.fn(),
+    });
+
+    expect(screen.getByRole("button", { name: "Braise" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Suivre la couleur du système" })).toBeChecked();
   });
 });

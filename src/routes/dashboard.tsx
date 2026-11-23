@@ -2,7 +2,11 @@ import { useCallback, useEffect } from "react";
 import { useNavigate } from "react-router";
 import { AppShell } from "../components/layout/AppShell";
 import { StatusBanners } from "../components/ui/StatusBanners";
-import { type AddWidgetTarget, DashboardScreen } from "../features/dashboard/DashboardScreen";
+import {
+  type AddWidgetTarget,
+  type AgendaWidgetView,
+  DashboardScreen,
+} from "../features/dashboard/DashboardScreen";
 import type { ReminderList, SavedView, WidgetPlacement } from "../lib/contracts/types";
 import {
   applyMove,
@@ -16,6 +20,13 @@ import { getIpc } from "../lib/ipc";
 import { resolveTimeZone, systemTimeZone } from "../lib/time";
 import { useClock } from "../lib/useClock";
 import { useAppStore } from "../stores/app.store";
+
+/** Période et libellé de chaque vue d'agenda proposée à la création d'un widget. */
+const AGENDA_PRESETS: Record<AgendaWidgetView, { title: string; rangeDays: number }> = {
+  day: { title: "Aujourd'hui", rangeDays: 1 },
+  week: { title: "7 jours", rangeDays: 7 },
+  month: { title: "30 jours", rangeDays: 30 },
+};
 
 /** Route du dashboard : édition de la disposition persistée via config_patch. */
 export function DashboardRoute() {
@@ -71,8 +82,12 @@ export function DashboardRoute() {
 
       if (target === "agenda" || (typeof target === "object" && target.type === "agenda")) {
         module = "agenda";
-        title = "Agenda";
-        filter = { rangeDays: 7, includeAllDay: true };
+        const preset =
+          AGENDA_PRESETS[
+            typeof target === "object" && target.type === "agenda" ? target.view : "week"
+          ];
+        title = preset.title;
+        filter = { rangeDays: preset.rangeDays, includeAllDay: true };
       } else if (typeof target === "object" && target.type === "reminders-today") {
         title = "Ma journée";
         filter = { statuses: ["open"], dueWithinDays: 0 };

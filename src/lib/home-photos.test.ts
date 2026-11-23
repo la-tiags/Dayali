@@ -69,6 +69,17 @@ describe("home-photos metadata cache and daily rotation", () => {
     expect(calls).toBe(0);
   });
 
+  it("records a photo served from the local cache in the vault history", async () => {
+    const ipc = createMockIpc();
+    configureIpc({ ...ipc, homePhotoUnsplash: async () => null });
+    writeCachedHomePhoto("2026-12-03", PHOTO);
+
+    await loadDailyHomePhoto({ logicalDate: "2026-12-03", query: null });
+
+    // Vault créé/migré après la mise en cache : l'identifiant ne doit pas manquer à l'appel.
+    expect(await ipc.homePhotoSeenList()).toContain(PHOTO.id);
+  });
+
   it("falls back to curated Unsplash photo when IPC has no key, and records ID history", async () => {
     configureIpc({ ...createMockIpc(), homePhotoUnsplash: async () => null });
     const photo = await loadDailyHomePhoto({ logicalDate: "2026-11-20", query: null });
@@ -99,5 +110,40 @@ describe("home-photos metadata cache and daily rotation", () => {
     );
     expect(readCachedHomePhoto("2026-11-25")).toEqual(PHOTO);
     expect(readPhotoIdHistory()).toContain(PHOTO.id);
+  });
+
+  it("never re-picks a photo already recorded in the vault, and records the new one there", async () => {
+    const ipc = createMockIpc();
+    configureIpc({ ...ipc, homePhotoUnsplash: async () => null });
+    const [keep, ...others] = CURATED_UNSPLASH_PHOTOS;
+    for (const photo of others) {
+      await ipc.homePhotoSeenRecord({ id: photo.id, logicalDate: "2026-01-01" });
+    }
+
+    const photo = await loadDailyHomePhoto({ logicalDate: "2026-11-30", query: null });
+
+    expect(photo.id).toBe(keep?.id);
+    expect(await ipc.homePhotoSeenList()).toContain(photo.id);
+  });
+
+  it("restarts from the least recently seen photo once the whole collection has been shown", () => {
+    const all = CURATED_UNSPLASH_PHOTOS.map((photo) => photo.id);
+    const picked = pickCuratedPhoto("2026-12-01", all);
+    expect(picked.id).toBe(all[0]);
+  });
+
+  it("still picks a photo when the vault history cannot be read", async () => {
+    configureIpc({
+      ...createMockIpc(),
+      homePhotoUnsplash: async () => null,
+      homePhotoSeenList: async () => {
+        throw new Error("vault fermé");
+      },
+      homePhotoSeenRecord: async () => {
+        throw new Error("vault fermé");
+      },
+    });
+    const photo = await loadDailyHomePhoto({ logicalDate: "2026-12-02", query: null });
+    expect(CURATED_UNSPLASH_PHOTOS.some((item) => item.id === photo.id)).toBe(true);
   });
 });

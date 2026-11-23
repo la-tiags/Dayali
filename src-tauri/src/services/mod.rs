@@ -4,6 +4,9 @@
 pub mod calendar;
 pub mod config;
 pub mod day;
+pub mod feed_ics;
+pub mod feeds;
+pub mod home_photo_history;
 pub mod home_photos;
 pub mod quotes;
 pub mod ics;
@@ -11,6 +14,7 @@ pub mod machine;
 pub mod migrations;
 pub mod paths;
 pub mod reminders;
+pub mod system_accent;
 pub mod vault;
 
 use serde::de::DeserializeOwned;

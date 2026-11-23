@@ -21,6 +21,21 @@ import { useClock } from "../lib/useClock";
 import { useAppStore } from "../stores/app.store";
 
 /**
+ * Photo d'accueil de la journée logique, **datée**.
+ *
+ * Rien n'est affiché tant que la photo du jour courant n'est pas connue : à l'ouverture du
+ * lendemain (ou au réveil de la machine, l'application restant ouverte), l'image de la veille
+ * ne reste jamais à l'écran le temps que la nouvelle arrive.
+ */
+type DayPhoto =
+  | { readonly logicalDate: string; readonly status: "pending" }
+  | { readonly logicalDate: string; readonly status: "ready"; readonly photo: HomePhoto }
+  | { readonly logicalDate: string; readonly status: "fallback" };
+
+/** Au-delà de ce délai sans photo en ligne, la photo embarquée prend la place (et reste). */
+const ONLINE_PHOTO_FALLBACK_MS = 5000;
+
+/**
  * Route d'accueil (SPEC §6) : écran plein cadre, sans coquille ni navigation.
  * Les rappels ne sont chargés qu'après le passage en aperçu du jour.
  */
@@ -53,9 +68,7 @@ export function TodayRoute() {
 
   const homeImageMode = config?.appearance.homeImage?.mode ?? "unsplash";
   const homeImageQuery = config?.appearance.homeImage?.unsplashQuery ?? null;
-  const [onlinePhoto, setOnlinePhoto] = useState<HomePhoto | null>(() =>
-    logicalDate ? readCachedHomePhoto(logicalDate) : null,
-  );
+  const [dayPhoto, setDayPhoto] = useState<DayPhoto | null>(null);
 
   /**
    * Photo Unsplash du jour : métadonnées mises en cache par journée logique pour
@@ -64,33 +77,61 @@ export function TodayRoute() {
    */
   useEffect(() => {
     if (homeImageMode !== "unsplash" || !logicalDate) {
-      setOnlinePhoto(null);
+      setDayPhoto(null);
       return;
     }
+    const date = logicalDate;
     let cancelled = false;
-    const cached = readCachedHomePhoto(logicalDate);
+
+    const settle = (photo: HomePhoto | null) => {
+      if (cancelled || !photo) return;
+      setDayPhoto({ logicalDate: date, status: "ready", photo });
+    };
+
+    /** Photo du jour via l'IPC (ou la sélection locale), décodée avant d'être affichée. */
+    const lookup = () => {
+      void loadDailyHomePhoto({ logicalDate: date, query: homeImageQuery })
+        .then((photo) => preloadImage(photo.src).then((ok) => settle(ok ? photo : null)))
+        .catch(() => {
+          // Échec : l'état reste en attente, le filet ci-dessous affiche la photo embarquée.
+        });
+    };
+
+    const cached = readCachedHomePhoto(date);
     if (cached) {
-      setOnlinePhoto(cached);
+      setDayPhoto({ logicalDate: date, status: "ready", photo: cached });
       void preloadImage(cached.src).then((ok) => {
-        if (cancelled) return;
-        if (!ok) {
-          clearCachedHomePhoto(logicalDate);
-          setOnlinePhoto(null);
-        }
+        if (cancelled || ok) return;
+        // L'URL n'est plus affichable (hors ligne) : on repasse en attente puis on résout le jour.
+        clearCachedHomePhoto(date);
+        setDayPhoto((current) =>
+          current?.logicalDate === date &&
+          current.status === "ready" &&
+          current.photo.id === cached.id
+            ? { logicalDate: date, status: "pending" }
+            : current,
+        );
+        lookup();
       });
       return () => {
         cancelled = true;
       };
     }
-    setOnlinePhoto(null);
-    void loadDailyHomePhoto({ logicalDate, query: homeImageQuery }).then((photo) => {
-      if (!photo || cancelled) return;
-      void preloadImage(photo.src).then((ok) => {
-        if (ok && !cancelled) setOnlinePhoto(photo);
-      });
-    });
+
+    setDayPhoto({ logicalDate: date, status: "pending" });
+    // Passé ce délai on laisse la photo embarquée s'afficher ; la photo en ligne la remplacera
+    // en fondu si elle finit par arriver.
+    const timer = window.setTimeout(() => {
+      setDayPhoto((current) =>
+        !cancelled && current?.logicalDate === date && current.status === "pending"
+          ? { logicalDate: date, status: "fallback" }
+          : current,
+      );
+    }, ONLINE_PHOTO_FALLBACK_MS);
+    lookup();
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
   }, [homeImageMode, homeImageQuery, logicalDate]);
 
@@ -204,6 +245,17 @@ export function TodayRoute() {
   const daySeed = dayOfYear(now, timeZone);
   const bundledPhoto = photoOfTheDay(daySeed);
 
+  // La photo retenue n'est rendue que si elle appartient à la journée logique affichée : au
+  // changement de jour, l'ancienne disparaît dans le même rendu, avant toute nouvelle requête.
+  const currentDayPhoto = dayPhoto?.logicalDate === logicalDate ? dayPhoto : null;
+  const onlinePhoto = currentDayPhoto?.status === "ready" ? currentDayPhoto.photo : null;
+
+  // Tant que la photo du jour n'est pas connue, on n'affiche **aucune** photo (fond sobre) plutôt
+  // que la photo embarquée : celle-ci apparaîtrait un instant avant d'être remplacée.
+  const photoPending =
+    homeImageMode === "unsplash" &&
+    (currentDayPhoto === null || currentDayPhoto.status === "pending");
+
   const resolvedPhoto = onlinePhoto
     ? {
         src: onlinePhoto.src,
@@ -213,13 +265,15 @@ export function TodayRoute() {
         licenseUrl: onlinePhoto.licenseUrl,
         provider: "unsplash" as const,
       }
-    : {
-        src: bundledPhoto.src,
-        credit: bundledPhoto.credit,
-        license: bundledPhoto.license,
-        source: bundledPhoto.source,
-        licenseUrl: bundledPhoto.licenseUrl,
-      };
+    : photoPending
+      ? null
+      : {
+          src: bundledPhoto.src,
+          credit: bundledPhoto.credit,
+          license: bundledPhoto.license,
+          source: bundledPhoto.source,
+          licenseUrl: bundledPhoto.licenseUrl,
+        };
 
   return (
     <TodayScreen

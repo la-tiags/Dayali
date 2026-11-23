@@ -2,12 +2,19 @@ import {
   type CSSProperties,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type RefObject,
   useCallback,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 import { useNavigate } from "react-router";
+import {
+  END_OF_DAY_FADE_STATE,
+  EndOfDayTransition,
+} from "../../components/layout/EndOfDayTransition";
 import { Button } from "../../components/ui/Button";
 import type { Config, ReminderList, WidgetPlacement } from "../../lib/contracts/types";
 import {
@@ -21,8 +28,11 @@ import { CalendarWidget } from "../widgets/CalendarWidget";
 import { ReminderWidget } from "../widgets/ReminderWidget";
 import styles from "./DashboardScreen.module.css";
 
+/** Vues d'agenda proposées à la création d'un widget (une par période utile). */
+export type AgendaWidgetView = "day" | "week" | "month";
+
 export type AddWidgetTarget =
-  | { type: "agenda" }
+  | { type: "agenda"; view: AgendaWidgetView }
   | { type: "reminders-all" }
   | { type: "reminders-today" }
   | { type: "reminders-list"; listId: string; listName: string };
@@ -52,7 +62,11 @@ const MODULE_LABEL: Record<WidgetPlacement["module"], string> = {
   projects: "Projets",
 };
 
-const GRID_COLUMN_KEYS = Array.from({ length: GRID_COLUMNS }, (_, index) => `col-${index + 1}`);
+const AGENDA_MENU_ITEMS: readonly { view: AgendaWidgetView; label: string }[] = [
+  { view: "day", label: "📅 Aujourd'hui" },
+  { view: "week", label: "🗓️ 7 jours" },
+  { view: "month", label: "🗓️ 30 jours" },
+];
 
 const RESIZE_KEYS: Record<string, readonly [number, number]> = {
   ArrowRight: [1, 0],
@@ -66,6 +80,76 @@ interface DragPreview {
   id: string;
   x: number;
   y: number;
+}
+
+/** Position libre (en pixels, relative à la grille) du widget saisi, qui suit le pointeur. */
+interface DragFree {
+  id: string;
+  left: number;
+  top: number;
+  /** Pas d'une cellule de grille, pour recaler le widget sur son emplacement. */
+  stepX: number;
+  stepY: number;
+}
+
+/** Taille libre (en pixels) du widget en cours de redimensionnement : elle suit le pointeur. */
+interface ResizeFree {
+  id: string;
+  width: number;
+  height: number;
+}
+
+/** Éléments sur lesquels un appui ne doit pas déclencher un déplacement. */
+const NO_DRAG_SELECTOR =
+  "button, select, input, textarea, a, label, [role='button'], [role='checkbox'], [contenteditable='true']";
+
+/** Distance (px) à partir de laquelle un appui devient un déplacement. */
+const DRAG_THRESHOLD = 4;
+
+const SNAP_EASING = "cubic-bezier(0.22, 0.8, 0.3, 1)";
+
+function motionAllowed(): boolean {
+  return !(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
+}
+
+/**
+ * Anime en douceur (FLIP) les widgets dont l'emplacement change dans la grille : quand un widget
+ * est déplacé, les autres glissent vers leur nouvelle place au lieu de sauter.
+ */
+function useFlipLayout(
+  gridRef: RefObject<HTMLDivElement | null>,
+  layoutKey: string,
+  skipId: string | null,
+) {
+  const previous = useRef(new Map<string, { x: number; y: number }>());
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `layoutKey` résume la disposition.
+  useLayoutEffect(() => {
+    const grid = gridRef.current;
+    if (!grid) return;
+    const gridRect = grid.getBoundingClientRect();
+    const next = new Map<string, { x: number; y: number }>();
+    for (const element of grid.querySelectorAll<HTMLElement>("[data-flip-id]")) {
+      const id = element.dataset.flipId;
+      if (!id) continue;
+      const position = { x: element.offsetLeft, y: element.offsetTop };
+      next.set(id, position);
+      const before = previous.current.get(id);
+      if (!before || id === skipId || !motionAllowed()) continue;
+      // Décalage déjà en cours (animation interrompue) à conserver pour ne pas « sauter ».
+      const rect = element.getBoundingClientRect();
+      const inflightX = rect.left - gridRect.left - grid.clientLeft - position.x;
+      const inflightY = rect.top - gridRect.top - grid.clientTop - position.y;
+      const dx = before.x - position.x + inflightX;
+      const dy = before.y - position.y + inflightY;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+      for (const animation of element.getAnimations()) animation.cancel();
+      element.animate(
+        [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }],
+        { duration: 260, easing: SNAP_EASING },
+      );
+    }
+    previous.current = next;
+  }, [layoutKey, skipId, gridRef]);
 }
 
 export function DashboardScreen({
@@ -90,14 +174,13 @@ export function DashboardScreen({
 
   const handleNavigateToEndOfDay = () => {
     setIsTransitioning(true);
-    setTimeout(() => {
-      navigate("/end-of-day");
-    }, 220);
   };
 
   // Aperçu pendant un redimensionnement (taille) ou un déplacement (position).
   const [preview, setPreview] = useState<{ id: string; w: number; h: number } | null>(null);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
+  const [dragFree, setDragFree] = useState<DragFree | null>(null);
+  const [resizeFree, setResizeFree] = useState<ResizeFree | null>(null);
 
   // Disposition affichée : layout réparé + preview de resize ou de drag appliqué en direct.
   const widgets = useMemo(() => {
@@ -126,6 +209,14 @@ export function DashboardScreen({
     );
   }, [config.dashboard.widgets, preview, dragPreview]);
 
+  const layoutKey = widgets
+    .map(
+      (widget) =>
+        `${widget.id}:${widget.layout.x},${widget.layout.y},${widget.layout.w},${widget.layout.h}`,
+    )
+    .join("|");
+  useFlipLayout(gridRef, layoutKey, dragFree?.id ?? resizeFree?.id ?? null);
+
   const commitResize = useCallback(
     (id: string, w: number, h: number) => {
       if (!onResizeWidget) return;
@@ -140,28 +231,67 @@ export function DashboardScreen({
   const [isEditing, setIsEditing] = useState(false);
   const showBanner = started === false && !bannerDismissed;
 
-  /** Glisser la poignée de redimensionnement (coin bas-droit). */
+  /**
+   * Redimensionnement libre : le coin du widget suit le pointeur pixel par pixel ; une case en
+   * pointillés montre la taille retenue, et à la dépose le widget glisse jusqu'à cette taille.
+   */
   const startResize = (event: ReactPointerEvent<HTMLButtonElement>, widget: WidgetPlacement) => {
     const grid = gridRef.current;
     if (!grid || !onResizeWidget || event.button !== 0) return;
     event.preventDefault();
+    const card = event.currentTarget.closest<HTMLElement>("[data-flip-id]");
+    if (!card) return;
+
     const computed = window.getComputedStyle(grid);
     const gapX = Number.parseFloat(computed.columnGap) || 0;
     const gapY = Number.parseFloat(computed.rowGap) || 0;
-    const stepX = (grid.clientWidth - gapX * (GRID_COLUMNS - 1)) / GRID_COLUMNS + gapX;
-    const stepY = rowHeight + gapY;
+    const colW = (grid.clientWidth - gapX * (GRID_COLUMNS - 1)) / GRID_COLUMNS;
+    const stepX = colW + gapX || 1;
+    const stepY = rowHeight + gapY || 1;
+    const spanW = (cells: number) => cells * colW + (cells - 1) * gapX;
+    const spanH = (cells: number) => cells * rowHeight + (cells - 1) * gapY;
+
+    const smallest = resizeLayout(widget.layout, 0, 0);
+    const largest = resizeLayout(widget.layout, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
+    const bounds = {
+      minW: spanW(smallest.w),
+      maxW: spanW(largest.w),
+      minH: spanH(smallest.h),
+      maxH: spanH(largest.h),
+    };
+
     const { w: startW, h: startH } = widget.layout;
+    const startRect = card.getBoundingClientRect();
     const originX = event.clientX;
     const originY = event.clientY;
     let current = { w: startW, h: startH };
+    let free = { width: startRect.width, height: startRect.height };
+    let active = false;
+    let previewed = false;
 
     const onMove = (move: PointerEvent) => {
+      if (!active) {
+        if (Math.hypot(move.clientX - originX, move.clientY - originY) < 2) return;
+        active = true;
+      }
+      free = {
+        width: Math.min(
+          bounds.maxW,
+          Math.max(bounds.minW, startRect.width + move.clientX - originX),
+        ),
+        height: Math.min(
+          bounds.maxH,
+          Math.max(bounds.minH, startRect.height + move.clientY - originY),
+        ),
+      };
+      setResizeFree({ id: widget.id, ...free });
       const next = resizeLayout(
         widget.layout,
-        startW + Math.round((move.clientX - originX) / stepX),
-        startH + Math.round((move.clientY - originY) / stepY),
+        Math.round((free.width + gapX) / stepX),
+        Math.round((free.height + gapY) / stepY),
       );
-      if (next.w !== current.w || next.h !== current.h) {
+      if (!previewed || next.w !== current.w || next.h !== current.h) {
+        previewed = true;
         current = { w: next.w, h: next.h };
         setPreview({ id: widget.id, ...current });
       }
@@ -170,6 +300,21 @@ export function DashboardScreen({
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onCancel);
+      if (!active) return;
+
+      const target = commit ? current : { w: startW, h: startH };
+      // Le widget lâché glisse de sa taille libre vers la taille de la grille.
+      flushSync(() => setResizeFree(null));
+      if (motionAllowed()) {
+        card.animate(
+          [
+            { width: `${free.width}px`, height: `${free.height}px` },
+            { width: `${spanW(target.w)}px`, height: `${spanH(target.h)}px` },
+          ],
+          { duration: 220, easing: SNAP_EASING },
+        );
+      }
+
       if (commit && (current.w !== startW || current.h !== startH)) {
         commitResize(widget.id, current.w, current.h);
       } else {
@@ -184,13 +329,19 @@ export function DashboardScreen({
     window.addEventListener("pointercancel", onCancel);
   };
 
-  /** Glisser la poignée de déplacement (haut du widget). */
-  const startDrag = (event: ReactPointerEvent<HTMLButtonElement>, widget: WidgetPlacement) => {
+  /**
+   * Déplacement libre : on saisit le widget n'importe où (hors contrôles), il suit le pointeur
+   * pixel par pixel ; à la dépose il se cale sur la grille en glissant jusqu'à sa case.
+   */
+  const startDrag = (event: ReactPointerEvent<HTMLElement>, widget: WidgetPlacement) => {
     const grid = gridRef.current;
     if (!grid || !onDragWidget || event.button !== 0) return;
+    if ((event.target as HTMLElement).closest(NO_DRAG_SELECTOR)) return;
+    // Colonne unique (petite fenêtre) : pas de position libre.
+    if (window.matchMedia?.("(width <= 56.25rem)").matches) return;
     event.preventDefault();
-    (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
 
+    const card = event.currentTarget;
     const computed = window.getComputedStyle(grid);
     const gapX = Number.parseFloat(computed.columnGap) || 0;
     const gapY = Number.parseFloat(computed.rowGap) || 0;
@@ -198,21 +349,37 @@ export function DashboardScreen({
     const stepX = colW + gapX || 1;
     const stepY = rowHeight + gapY || 1;
 
-    // Position du coin haut-gauche du widget au moment du pointerdown.
-    const gridRect = grid.getBoundingClientRect();
     const startX = widget.layout.x;
     const startY = widget.layout.y;
-    // Décalage du pointeur dans le widget (pour drag naturel depuis n'importe quel point).
-    const offsetX = event.clientX - gridRect.left - startX * stepX;
-    const offsetY = event.clientY - gridRect.top - startY * stepY;
+    const originX = event.clientX;
+    const originY = event.clientY;
+    // Point saisi dans le widget : il reste sous le pointeur pendant tout le déplacement.
+    const cardRect = card.getBoundingClientRect();
+    const grabX = event.clientX - cardRect.left;
+    const grabY = event.clientY - cardRect.top;
 
+    let active = false;
     let current = { x: startX, y: startY };
-    setDragPreview({ id: widget.id, ...current });
+    let free = { left: startX * stepX, top: startY * stepY };
 
     const onMove = (move: PointerEvent) => {
-      const rawX = Math.round((move.clientX - gridRect.left - offsetX) / stepX);
-      const rawY = Math.round((move.clientY - gridRect.top - offsetY) / stepY);
-      const clamped = clampLayout({ x: rawX, y: rawY, w: widget.layout.w, h: widget.layout.h });
+      if (!active) {
+        if (Math.hypot(move.clientX - originX, move.clientY - originY) < DRAG_THRESHOLD) return;
+        active = true;
+        setDragPreview({ id: widget.id, ...current });
+      }
+      const rect = grid.getBoundingClientRect();
+      free = {
+        left: move.clientX - rect.left - grid.clientLeft - grabX,
+        top: move.clientY - rect.top - grid.clientTop - grabY,
+      };
+      setDragFree({ id: widget.id, ...free, stepX, stepY });
+      const clamped = clampLayout({
+        x: Math.round(free.left / stepX),
+        y: Math.round(free.top / stepY),
+        w: widget.layout.w,
+        h: widget.layout.h,
+      });
       if (clamped.x !== current.x || clamped.y !== current.y) {
         current = { x: clamped.x, y: clamped.y };
         setDragPreview({ id: widget.id, ...current });
@@ -223,9 +390,35 @@ export function DashboardScreen({
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onCancel);
-      setDragPreview(null);
-      if (commit && (current.x !== startX || current.y !== startY)) {
-        void Promise.resolve(onDragWidget(widget.id, current.x, current.y));
+      if (!active) return;
+
+      const target = commit ? current : { x: startX, y: startY };
+      // Le widget lâché glisse de sa position libre vers sa case.
+      const fromX = free.left - target.x * stepX;
+      const fromY = free.top - target.y * stepY;
+      flushSync(() => setDragFree(null));
+      if (motionAllowed()) {
+        card.style.zIndex = "10";
+        const settle = card.animate(
+          [
+            { transform: `translate3d(${fromX}px, ${fromY}px, 0) scale(1.02)` },
+            { transform: "translate3d(0, 0, 0) scale(1)" },
+          ],
+          { duration: 240, easing: SNAP_EASING },
+        );
+        settle.onfinish = () => {
+          card.style.zIndex = "";
+        };
+        settle.oncancel = settle.onfinish;
+      }
+
+      const moved = commit && (target.x !== startX || target.y !== startY);
+      if (moved) {
+        // L'aperçu reste jusqu'à l'enregistrement : pas de retour furtif à l'ancienne case.
+        const clear = () => setDragPreview(null);
+        void Promise.resolve(onDragWidget(widget.id, target.x, target.y)).then(clear, clear);
+      } else {
+        setDragPreview(null);
       }
     };
     const onUp = () => stop(true);
@@ -251,8 +444,9 @@ export function DashboardScreen({
     }
   };
 
-  /** Flèches clavier sur la poignée de déplacement. */
-  const moveWithKeyboard = (event: KeyboardEvent<HTMLButtonElement>, widget: WidgetPlacement) => {
+  /** Flèches clavier sur le widget lui-même (mode édition) : déplacement case par case. */
+  const moveWithKeyboard = (event: KeyboardEvent<HTMLElement>, widget: WidgetPlacement) => {
+    if (event.target !== event.currentTarget) return;
     const dirMap: Record<string, "up" | "down" | "left" | "right"> = {
       ArrowUp: "up",
       ArrowDown: "down",
@@ -285,7 +479,9 @@ export function DashboardScreen({
     return (
       <section className={styles.screen} aria-labelledby="dashboard-title">
         {isTransitioning ? (
-          <div className={styles.fullscreenTransitionOverlay} aria-hidden="true" />
+          <EndOfDayTransition
+            onCovered={() => navigate("/end-of-day", { state: END_OF_DAY_FADE_STATE })}
+          />
         ) : null}
         <h1 className={styles.title} id="dashboard-title">
           Dashboard
@@ -321,17 +517,20 @@ export function DashboardScreen({
               </Button>
               {showAddMenu ? (
                 <div className={styles.addMenuDropdown} role="menu">
-                  <button
-                    type="button"
-                    className={styles.addMenuItem}
-                    role="menuitem"
-                    onClick={() => {
-                      setShowAddMenu(false);
-                      onAddWidget("agenda");
-                    }}
-                  >
-                    📅 Agenda
-                  </button>
+                  {AGENDA_MENU_ITEMS.map(({ view, label }) => (
+                    <button
+                      key={view}
+                      type="button"
+                      className={styles.addMenuItem}
+                      role="menuitem"
+                      onClick={() => {
+                        setShowAddMenu(false);
+                        onAddWidget({ type: "agenda", view });
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
                   <button
                     type="button"
                     className={styles.addMenuItem}
@@ -384,7 +583,9 @@ export function DashboardScreen({
   return (
     <section className={styles.screen} aria-labelledby="dashboard-title">
       {isTransitioning ? (
-        <div className={styles.fullscreenTransitionOverlay} aria-hidden="true" />
+        <EndOfDayTransition
+          onCovered={() => navigate("/end-of-day", { state: END_OF_DAY_FADE_STATE })}
+        />
       ) : null}
       <header className={styles.header}>
         <div className={styles.titleBlock}>
@@ -399,17 +600,19 @@ export function DashboardScreen({
           >
             {isEditing ? "Terminer la modification" : "Modifier la disposition"}
           </Button>
-          <button
-            type="button"
-            className={styles.endOfDayButton}
-            onClick={handleNavigateToEndOfDay}
-            aria-label="Fin de journée"
-          >
-            <span className={styles.endOfDayIcon} aria-hidden="true">
-              🌙
-            </span>
-            <span>Fin de journée</span>
-          </button>
+          {isEditing ? null : (
+            <button
+              type="button"
+              className={styles.endOfDayButton}
+              onClick={handleNavigateToEndOfDay}
+              aria-label="Fin de journée"
+            >
+              <span className={styles.endOfDayIcon} aria-hidden="true">
+                🌙
+              </span>
+              <span>Fin de journée</span>
+            </button>
+          )}
           {onAddWidget && isEditing ? (
             <div className={styles.addMenuContainer}>
               <Button
@@ -421,17 +624,20 @@ export function DashboardScreen({
               </Button>
               {showAddMenu ? (
                 <div className={styles.addMenuDropdown} role="menu">
-                  <button
-                    type="button"
-                    className={styles.addMenuItem}
-                    role="menuitem"
-                    onClick={() => {
-                      setShowAddMenu(false);
-                      onAddWidget("agenda");
-                    }}
-                  >
-                    📅 Agenda
-                  </button>
+                  {AGENDA_MENU_ITEMS.map(({ view, label }) => (
+                    <button
+                      key={view}
+                      type="button"
+                      className={styles.addMenuItem}
+                      role="menuitem"
+                      onClick={() => {
+                        setShowAddMenu(false);
+                        onAddWidget({ type: "agenda", view });
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
                   <button
                     type="button"
                     className={styles.addMenuItem}
@@ -486,16 +692,29 @@ export function DashboardScreen({
         className={`${styles.grid} ${isEditing ? styles.gridEditing : ""}`}
         style={{ "--row-height": `${rowHeight}px` } as CSSProperties}
       >
-        {isEditing ? (
-          <div className={styles.gridGuides} aria-hidden="true">
-            {GRID_COLUMN_KEYS.map((key) => (
-              <span key={key} className={styles.gridGuide} />
-            ))}
-          </div>
-        ) : null}
+        {dragFree || resizeFree
+          ? (() => {
+              const activeId = dragFree?.id ?? resizeFree?.id;
+              const dragged = widgets.find((widget) => widget.id === activeId);
+              return dragged ? (
+                <div
+                  className={styles.dropSlot}
+                  data-flip-id="drop-slot"
+                  aria-hidden="true"
+                  style={
+                    {
+                      "--card-column": `${dragged.layout.x + 1} / span ${dragged.layout.w}`,
+                      "--card-row": `${dragged.layout.y + 1} / span ${dragged.layout.h}`,
+                    } as CSSProperties
+                  }
+                />
+              ) : null;
+            })()
+          : null}
         {widgets.map((widget) => {
           const view = config.views.find((candidate) => candidate.id === widget.viewId);
-          const isDragging = dragPreview?.id === widget.id;
+          const free = dragFree?.id === widget.id ? dragFree : null;
+          const isDragging = free !== null;
           const isResizing = preview?.id === widget.id;
           return (
             <section
@@ -510,30 +729,31 @@ export function DashboardScreen({
                 .filter(Boolean)
                 .join(" ")}
               aria-labelledby={`${widget.id}-title`}
+              data-flip-id={widget.id}
+              tabIndex={isEditing && onMoveWidget ? 0 : undefined}
+              onPointerDown={isEditing ? (event) => startDrag(event, widget) : undefined}
+              onKeyDown={isEditing ? (event) => moveWithKeyboard(event, widget) : undefined}
               style={
                 {
                   "--card-column": `${widget.layout.x + 1} / span ${widget.layout.w}`,
                   "--card-row": `${widget.layout.y + 1} / span ${widget.layout.h}`,
+                  ...(resizeFree?.id === widget.id
+                    ? {
+                        width: `${resizeFree.width}px`,
+                        height: `${resizeFree.height}px`,
+                        justifySelf: "start",
+                        alignSelf: "start",
+                        zIndex: 10,
+                      }
+                    : {}),
+                  ...(free
+                    ? {
+                        transform: `translate3d(${free.left - widget.layout.x * free.stepX}px, ${free.top - widget.layout.y * free.stepY}px, 0) scale(1.02)`,
+                      }
+                    : {}),
                 } as CSSProperties
               }
             >
-              {/* Poignée de déplacement (drag, haut du widget, mode édition) */}
-              {isEditing && onDragWidget ? (
-                <button
-                  type="button"
-                  className={styles.dragHandle}
-                  aria-label={`Déplacer ${widget.title ?? MODULE_LABEL[widget.module]}`}
-                  title="Glisser pour déplacer le widget (ou flèches du clavier)"
-                  onPointerDown={(event) => startDrag(event, widget)}
-                  onKeyDown={(event) => moveWithKeyboard(event, widget)}
-                >
-                  <span className={styles.dragGrip} aria-hidden="true">
-                    ⠿
-                  </span>
-                  <span className={styles.dragLabel}>Déplacer</span>
-                </button>
-              ) : null}
-
               <div className={styles.cardHeader}>
                 <h2 className={styles.cardTitle} id={`${widget.id}-title`}>
                   {widget.title ?? MODULE_LABEL[widget.module]}
@@ -586,7 +806,12 @@ export function DashboardScreen({
                 <ReminderWidget placement={widget} view={view} logicalDate={logicalDate} />
               ) : null}
               {widget.enabled && widget.module === "agenda" && view?.module === "agenda" ? (
-                <CalendarWidget placement={widget} view={view} logicalDate={logicalDate} />
+                <CalendarWidget
+                  placement={widget}
+                  view={view}
+                  logicalDate={logicalDate}
+                  locale={config.locale}
+                />
               ) : null}
               {!widget.enabled ||
               !view ||

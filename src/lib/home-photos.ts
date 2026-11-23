@@ -5,8 +5,8 @@
  * 1. Depuis le cache local pour la journée logique (stabilité absolue durant la journée).
  * 2. Via l'IPC Rust si une clé API Unsplash est configurée côté backend.
  * 3. À défaut de clé API (ou hors quota), via une collection soignée de paysages
- *    Unsplash haute résolution qui tournent chaque jour en enregistrant l'historique
- *    des IDs pour ne jamais répéter les photos récentes.
+ *    Unsplash haute résolution qui tournent chaque jour. Les identifiants des photos déjà
+ *    affichées sont enregistrés **dans le vault** : une photo ne revient jamais.
  * 4. Les photos Wikimedia embarquées restent disponibles en ultime secours si la machine
  *    n'a aucun accès réseau (l'image ne charge pas).
  */
@@ -456,21 +456,27 @@ export function recordPhotoIdHistory(id: string): void {
 }
 
 /**
- * Choisit une photo parmi la collection Unsplash qui n'a pas été affichée récemment,
- * de manière déterministe par rapport à la date logique.
+ * Choisit une photo parmi la collection Unsplash qui n'a **jamais** été affichée, de manière
+ * déterministe par rapport à la date logique.
+ *
+ * `vaultSeen` = identifiants déjà affichés enregistrés dans le vault (toutes machines), du plus
+ * ancien au plus récent. Quand toute la collection a déjà été vue, on repart de la photo vue le
+ * plus anciennement.
  */
-export function pickCuratedPhoto(logicalDate: string): HomePhoto {
-  const history = readPhotoIdHistory();
-  let available = CURATED_UNSPLASH_PHOTOS.filter((photo) => !history.includes(photo.id));
+export function pickCuratedPhoto(
+  logicalDate: string,
+  vaultSeen: readonly string[] = [],
+): HomePhoto {
+  const history = [...new Set([...vaultSeen, ...readPhotoIdHistory()])];
+  let candidates: readonly HomePhoto[] = CURATED_UNSPLASH_PHOTOS.filter(
+    (photo) => !history.includes(photo.id),
+  );
 
-  // Si l'historique a presque tout épuisé, on libère les photos les plus anciennes
-  if (available.length < 5) {
-    const recent = history.slice(-10);
-    available = CURATED_UNSPLASH_PHOTOS.filter((photo) => !recent.includes(photo.id));
+  if (candidates.length === 0) {
+    const oldestId = history.find((id) => CURATED_UNSPLASH_PHOTOS.some((photo) => photo.id === id));
+    const oldest = CURATED_UNSPLASH_PHOTOS.find((photo) => photo.id === oldestId);
+    candidates = oldest ? [oldest] : CURATED_UNSPLASH_PHOTOS;
   }
-
-  // Si tout est encore filtré (collection courte), on prend l'ensemble
-  const candidates = available.length > 0 ? available : CURATED_UNSPLASH_PHOTOS;
 
   // Hachage simple de la date logique (ex: "2026-11-21")
   let hash = 0;
@@ -485,6 +491,31 @@ export function pickCuratedPhoto(logicalDate: string): HomePhoto {
   recordPhotoIdHistory(selected.id);
   writeCachedHomePhoto(logicalDate, selected);
   return selected;
+}
+
+/** Identifiants déjà affichés d'après le vault ; vide si l'IPC n'est pas disponible. */
+async function readVaultSeen(): Promise<string[]> {
+  try {
+    return await getIpc().homePhotoSeenList();
+  } catch {
+    return [];
+  }
+}
+
+/** Enregistre l'identifiant dans l'historique du vault ; un échec ne bloque jamais l'affichage. */
+async function rememberInVault(id: string, logicalDate: string): Promise<void> {
+  try {
+    await getIpc().homePhotoSeenRecord({ id, logicalDate });
+  } catch {
+    // Vault indisponible : la photo reste affichée, simplement non mémorisée.
+  }
+}
+
+/** Choisit une photo de la collection en évitant l'historique du vault, puis l'y enregistre. */
+async function pickAndRemember(logicalDate: string): Promise<HomePhoto> {
+  const photo = pickCuratedPhoto(logicalDate, await readVaultSeen());
+  await rememberInVault(photo.id, logicalDate);
+  return photo;
 }
 
 /** Ne conserve que les journées les plus récentes (les clés sont des dates ISO). */
@@ -514,14 +545,19 @@ const inflight = new Map<string, Promise<HomePhoto | null>>();
  */
 export async function loadDailyHomePhoto(input: HomePhotoInput): Promise<HomePhoto> {
   const cached = readCachedHomePhoto(input.logicalDate);
-  if (cached) return cached;
+  if (cached) {
+    // Une photo servie depuis le cache local doit elle aussi figurer dans l'historique du vault
+    // (vault créé ou migré après coup) : sinon elle pourrait être reproposée un autre jour.
+    void rememberInVault(cached.id, input.logicalDate);
+    return cached;
+  }
 
   const key = `${input.logicalDate}|${input.query ?? ""}`;
   const pending = inflight.get(key);
   if (pending) {
     const result = await pending;
     if (result) return result;
-    return pickCuratedPhoto(input.logicalDate);
+    return pickAndRemember(input.logicalDate);
   }
 
   const request = getIpc()
@@ -541,7 +577,7 @@ export async function loadDailyHomePhoto(input: HomePhotoInput): Promise<HomePho
   const photo = await request;
   if (photo) return photo;
 
-  return pickCuratedPhoto(input.logicalDate);
+  return pickAndRemember(input.logicalDate);
 }
 
 /**

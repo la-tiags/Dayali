@@ -33,11 +33,14 @@ function contrastRatio(fgHex: string, bgHex: string): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+// Depuis la teinte par accent, ces valeurs sont dérivées dans tokens.css
+// (`color-mix`). On rejoue ici les valeurs obtenues pour l'accent par défaut,
+// Braise #e08a52, en thème clair.
 describe("Design Tokens Contrast (WCAG AA)", () => {
-  const creamBg = "#faf6ee";
-  const headingText = "#1a1611";
-  const mainText = "#241f18";
-  const mutedText = "#5b5347";
+  const creamBg = "#f9f2ea";
+  const headingText = "#201912";
+  const mainText = "#2b231b";
+  const mutedText = "#5f5145";
 
   it("heading text on cream background meets WCAG AA large text (>= 3:1)", () => {
     const ratio = contrastRatio(headingText, creamBg);

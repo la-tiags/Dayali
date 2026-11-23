@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import {
   addDays,
@@ -90,6 +90,104 @@ function getEventStartHour(item: CalendarItem, timeZone: string): number | null 
   const split = splitLocalInput(input);
   if (!split) return null;
   return Number(split.time.split(":")[0]);
+}
+
+/** Première heure et nombre d'heures couvertes par la grille horaire (07:00 → 23:00). */
+const GRID_START_HOUR = 7;
+const GRID_TOTAL_MINUTES = HOURS.length * 60;
+const GRID_START_MINUTES = GRID_START_HOUR * 60;
+/** Hauteur minimale d'un bloc, en pourcentage de la grille (≈ 20 px). */
+const MIN_BLOCK_PERCENT = 2.6;
+
+/** Minutes depuis minuit d'un instant, dans le fuseau de l'événement. */
+function minutesOf(point: CalendarItem["start"], fallbackTimeZone: string): number | null {
+  if ("date" in point) return null;
+  const input = instantToLocalInput(point.dateTime, point.timeZone || fallbackTimeZone);
+  const split = splitLocalInput(input);
+  if (!split) return null;
+  const [hour, minute] = split.time.split(":").map(Number) as [number, number];
+  return hour * 60 + minute;
+}
+
+interface PlacedEvent {
+  readonly item: CalendarItem;
+  /** Position et taille en pourcentage de la grille horaire. */
+  readonly top: number;
+  readonly height: number;
+  readonly left: number;
+  readonly width: number;
+}
+
+interface TimedEntry {
+  readonly item: CalendarItem;
+  readonly startMinute: number;
+  readonly endMinute: number;
+}
+
+/**
+ * Place les événements horaires d'une journée **sur** la grille au lieu de les empiler dans
+ * la ligne de leur heure de début : `top` suit l'heure, `height` la durée, et deux événements
+ * qui se chevauchent se partagent la largeur en colonnes (comme Apple Calendrier).
+ */
+function placeTimedEvents(items: readonly CalendarItem[], timeZone: string): PlacedEvent[] {
+  const entries: TimedEntry[] = [];
+  for (const item of items) {
+    const start = minutesOf(item.start, timeZone);
+    if (start === null) continue;
+    if (start < GRID_START_MINUTES || start >= GRID_START_MINUTES + GRID_TOTAL_MINUTES) continue;
+    const end = minutesOf(item.end, timeZone);
+    const boundedEnd = Math.min(
+      end !== null && end > start ? end : start + 30,
+      GRID_START_MINUTES + GRID_TOTAL_MINUTES,
+    );
+    entries.push({ item, startMinute: start, endMinute: Math.max(boundedEnd, start + 15) });
+  }
+  entries.sort(
+    (left, right) => left.startMinute - right.startMinute || left.endMinute - right.endMinute,
+  );
+
+  const placed: PlacedEvent[] = [];
+  let group: TimedEntry[] = [];
+  let groupEnd = -1;
+
+  const flush = () => {
+    if (group.length === 0) return;
+    const laneEnds: number[] = [];
+    const laneOf = new Map<TimedEntry, number>();
+    for (const entry of group) {
+      let lane = laneEnds.findIndex((laneEnd) => laneEnd <= entry.startMinute);
+      if (lane === -1) {
+        lane = laneEnds.length;
+        laneEnds.push(entry.endMinute);
+      } else {
+        laneEnds[lane] = entry.endMinute;
+      }
+      laneOf.set(entry, lane);
+    }
+    const laneCount = Math.max(laneEnds.length, 1);
+    for (const entry of group) {
+      placed.push({
+        item: entry.item,
+        top: ((entry.startMinute - GRID_START_MINUTES) / GRID_TOTAL_MINUTES) * 100,
+        height: Math.max(
+          ((entry.endMinute - entry.startMinute) / GRID_TOTAL_MINUTES) * 100,
+          MIN_BLOCK_PERCENT,
+        ),
+        left: ((laneOf.get(entry) ?? 0) / laneCount) * 100,
+        width: 100 / laneCount,
+      });
+    }
+    group = [];
+    groupEnd = -1;
+  };
+
+  for (const entry of entries) {
+    if (group.length > 0 && entry.startMinute >= groupEnd) flush();
+    group.push(entry);
+    groupEnd = Math.max(groupEnd, entry.endMinute);
+  }
+  flush();
+  return placed;
 }
 
 function getDayNumber(date: LocalDate): number {
@@ -231,6 +329,7 @@ export function CalendarScreen({
   const endId = useId();
   const locationId = useId();
   const descriptionId = useId();
+  const deleteConfirmId = useId();
 
   const [title, setTitle] = useState("");
   const [allDay, setAllDay] = useState(false);
@@ -244,11 +343,14 @@ export function CalendarScreen({
   const [formTimeZone, setFormTimeZone] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isFormOpen, setIsFormOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [reloading, setReloading] = useState(false);
+  /** Confirmation de suppression affichée dans la boîte de dialogue (grilles sans carte). */
+  const [confirmDeleteInDialog, setConfirmDeleteInDialog] = useState(false);
 
   // Chargement initial (ou rechargement si une autre fenêtre était chargée).
   useEffect(() => {
@@ -337,7 +439,90 @@ export function CalendarScreen({
     return [];
   }, [viewMode, anchorDate]);
 
+  /** Positions des événements horaires de chaque colonne des vues 3 jours / semaine. */
+  const placedByDay = useMemo(() => {
+    const map = new Map<LocalDate, PlacedEvent[]>();
+    for (const day of multiDays) {
+      map.set(
+        day,
+        placeTimedEvents(
+          eventsOnDate(agenda.items, day).filter((item) => !("date" in item.start)),
+          timeZone,
+        ),
+      );
+    }
+    return map;
+  }, [multiDays, agenda.items, timeZone]);
+
   const loading = agenda.status === "loading" || agenda.status === "idle";
+
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+
+  // `<dialog>` natif : couche supérieure, arrière-plan inerte, focus piégé et Échap géré
+  // par le navigateur. jsdom (tests) n'implémente pas `showModal` : l'attribut `open` suffit.
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (isFormOpen) {
+      if (typeof dialog.showModal === "function") {
+        if (!dialog.open) dialog.showModal();
+      } else {
+        dialog.setAttribute("open", "");
+      }
+      titleInputRef.current?.focus();
+      return;
+    }
+    if (typeof dialog.close === "function") {
+      if (dialog.open) dialog.close();
+      return;
+    }
+    dialog.removeAttribute("open");
+  }, [isFormOpen]);
+
+  // Fermeture native (Échap, clic extérieur) : on resynchronise l'état React.
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const onClose = () => {
+      setIsFormOpen(false);
+      setEditingId(null);
+    };
+    dialog.addEventListener("close", onClose);
+    return () => dialog.removeEventListener("close", onClose);
+  }, []);
+
+  // `closedby` n'est pas encore pris en charge par WebKit : clic extérieur = fermeture.
+  // On compare les coordonnées, pas la cible : le `<dialog>` est aussi la cible de son
+  // propre remplissage et des espaces entre ses enfants.
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog || "closedBy" in HTMLDialogElement.prototype) return;
+    const outside = (event: PointerEvent) => {
+      const rect = dialog.getBoundingClientRect();
+      return (
+        event.clientX < rect.left ||
+        event.clientX > rect.right ||
+        event.clientY < rect.top ||
+        event.clientY > rect.bottom
+      );
+    };
+    let pressedOutside = false;
+    const onPointerDown = (event: PointerEvent) => {
+      pressedOutside = outside(event);
+    };
+    const onPointerUp = (event: PointerEvent) => {
+      if (pressedOutside && outside(event) && typeof dialog.close === "function") {
+        dialog.close();
+      }
+    };
+    dialog.addEventListener("pointerdown", onPointerDown);
+    dialog.addEventListener("pointerup", onPointerUp);
+    return () => {
+      dialog.removeEventListener("pointerdown", onPointerDown);
+      dialog.removeEventListener("pointerup", onPointerUp);
+    };
+  }, []);
 
   const resetForm = () => {
     setEditingId(null);
@@ -351,6 +536,21 @@ export function CalendarScreen({
     setDescription("");
     setFormTimeZone(null);
     setFormError(null);
+    setConfirmDeleteInDialog(false);
+  };
+
+  /** Ferme la boîte de dialogue et oublie le brouillon en cours. */
+  const closeForm = () => {
+    setIsFormOpen(false);
+    resetForm();
+  };
+
+  /** Ouvre la création dans une boîte de dialogue vierge. */
+  const openCreateForm = () => {
+    setNotice(null);
+    setConfirmingId(null);
+    resetForm();
+    setIsFormOpen(true);
   };
 
   const reload = async () => {
@@ -358,7 +558,7 @@ export function CalendarScreen({
     setNotice(null);
     // Recharger pendant une édition repart de la version du vault : garder un
     // brouillon prérempli avec l'ancienne version écraserait la nouvelle.
-    if (editingId) resetForm();
+    if (editingId) closeForm();
     await reloadAgenda();
     setReloading(false);
   };
@@ -375,6 +575,7 @@ export function CalendarScreen({
     setNotice(null);
     setConfirmingId(null);
     setFormError(null);
+    setIsFormOpen(true);
     setEditingId(item.id);
     setTitle(item.title);
     setLocation(item.location ?? "");
@@ -504,7 +705,7 @@ export function CalendarScreen({
     setSaving(false);
     if (saved) {
       const wasEditing = Boolean(current);
-      resetForm();
+      closeForm();
       setNotice(wasEditing ? "Événement modifié." : "Événement créé.");
     }
   };
@@ -516,9 +717,81 @@ export function CalendarScreen({
     setDeletingId(null);
     if (removed) {
       setConfirmingId(null);
-      if (editingId === id) resetForm();
+      if (editingId === id) closeForm();
       setNotice("Événement supprimé.");
     }
+  };
+
+  /** Clé stable d'un événement dans une vue (un événement de flux peut apparaître par jour). */
+  const eventKey = (item: CalendarItem) => (isLocalCalendarEvent(item) ? item.id : item.uid);
+
+  /** Contenu commun d'une pastille : titre, horaire, lieu. */
+  const renderChipContent = (item: CalendarItem) => (
+    <>
+      <span className={styles.gridEventTitle}>{item.title}</span>
+      <span className={styles.gridEventMeta}>{eventTimeLabel(item, locale)}</span>
+      {item.location ? <span className={styles.gridEventMeta}>{item.location}</span> : null}
+    </>
+  );
+
+  const chipLabel = (item: CalendarItem) =>
+    `${item.title} — ${eventTimeLabel(item, locale)}${item.location ? ` — ${item.location}` : ""}`;
+
+  /** Pastille compacte en flux : cases du mois, ligne « journée entière » des vues multi-jours. */
+  const renderGridChip = (item: CalendarItem, date: LocalDate) => {
+    const label = chipLabel(item);
+    if (!isLocalCalendarEvent(item)) {
+      return (
+        <span
+          key={`${eventKey(item)}:${date}`}
+          className={styles.chipEvent}
+          title={`${label} (lecture seule)`}
+        >
+          {renderChipContent(item)}
+        </span>
+      );
+    }
+    return (
+      <button
+        key={`${eventKey(item)}:${date}`}
+        type="button"
+        className={styles.chipEvent}
+        title={label}
+        aria-label={`Modifier « ${item.title} »`}
+        onClick={() => beginEdit(item)}
+      >
+        {renderChipContent(item)}
+      </button>
+    );
+  };
+
+  /** Bloc positionné sur la grille horaire (Jour, 3 jours, Semaine). */
+  const renderTimedBlock = (item: CalendarItem, date: LocalDate) => {
+    const label = chipLabel(item);
+    const className = `${styles.gridEvent} ${item.status === "cancelled" ? styles.gridEventCancelled : ""}`;
+    if (!isLocalCalendarEvent(item)) {
+      return (
+        <span
+          key={`${eventKey(item)}:${date}`}
+          className={className}
+          title={`${label} (lecture seule)`}
+        >
+          {renderChipContent(item)}
+        </span>
+      );
+    }
+    return (
+      <button
+        key={`${eventKey(item)}:${date}`}
+        type="button"
+        className={className}
+        title={label}
+        aria-label={`Modifier « ${item.title} »`}
+        onClick={() => beginEdit(item)}
+      >
+        {renderChipContent(item)}
+      </button>
+    );
   };
 
   const renderEventCard = (item: CalendarItem, date: LocalDate, compact = false) => {
@@ -616,7 +889,11 @@ export function CalendarScreen({
             )}
           </div>
         ) : (
-          <p className={styles.readOnly}>Flux externe — lecture seule</p>
+          <p className={styles.readOnly}>
+            {item.calendarName
+              ? `Calendrier « ${item.calendarName} » — lecture seule`
+              : "Flux externe — lecture seule"}
+          </p>
         )}
       </li>
     );
@@ -634,6 +911,11 @@ export function CalendarScreen({
               ? "Chargement de l'agenda…"
               : `${agenda.items.length} événement(s) dans la fenêtre affichée`}
           </p>
+        </div>
+        <div className={styles.headerActions}>
+          <Button variant="primary" onClick={openCreateForm}>
+            Nouvel événement
+          </Button>
         </div>
       </header>
 
@@ -738,140 +1020,203 @@ export function CalendarScreen({
         {notice ?? ""}
       </p>
 
-      <section
-        className={`${styles.panel} ${editingId ? styles.inspectorCard : ""}`}
+      <dialog
+        ref={dialogRef}
+        className={styles.formDialog}
+        data-testid="calendar-event-dialog"
         aria-labelledby="calendar-form-title"
+        {...({ closedby: "any" } as Record<string, string>)}
       >
-        <h2 className={styles.panelTitle} id="calendar-form-title">
-          {editingId ? "Inspecteur d'événement (i) — Modifier" : "Ajouter un événement"}
-        </h2>
-        <form
-          className={styles.createForm}
-          onSubmit={(event) => void submit(event)}
-          aria-busy={saving}
-        >
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor={titleInputId}>
-              Titre de l'événement
-            </label>
-            <input
-              id={titleInputId}
-              className={styles.input}
-              type="text"
-              value={title}
-              autoComplete="off"
-              required
-              aria-invalid={formError?.includes("titre") ? true : undefined}
-              onChange={(event) => setTitle(event.target.value)}
-            />
-          </div>
-
-          <div className={styles.checkboxField}>
-            <input
-              id={allDayId}
-              type="checkbox"
-              checked={allDay}
-              onChange={(event) => toggleAllDay(event.target.checked)}
-            />
-            <label className={styles.label} htmlFor={allDayId}>
-              Journée entière
-            </label>
-          </div>
-
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor={startId}>
-              Début
-            </label>
-            <input
-              id={startId}
-              className={styles.input}
-              type={allDay ? "date" : "datetime-local"}
-              value={allDay ? startDateValue : `${startDateValue}T${startTimeValue}`}
-              required
-              onChange={(event) => {
-                const value = event.target.value;
-                if (allDay) {
-                  setStartDateValue(value);
-                  return;
-                }
-                const split = splitLocalInput(value);
-                if (split) {
-                  setStartDateValue(split.date);
-                  setStartTimeValue(split.time);
-                }
-              }}
-            />
-          </div>
-
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor={endId}>
-              {allDay ? "Fin (exclue)" : "Fin"}
-            </label>
-            <input
-              id={endId}
-              className={styles.input}
-              type={allDay ? "date" : "datetime-local"}
-              value={allDay ? endDateValue : `${endDateValue}T${endTimeValue}`}
-              required
-              onChange={(event) => {
-                const value = event.target.value;
-                if (allDay) {
-                  setEndDateValue(value);
-                  return;
-                }
-                const split = splitLocalInput(value);
-                if (split) {
-                  setEndDateValue(split.date);
-                  setEndTimeValue(split.time);
-                }
-              }}
-            />
-          </div>
-
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor={locationId}>
-              Lieu (optionnel)
-            </label>
-            <input
-              id={locationId}
-              className={styles.input}
-              type="text"
-              value={location}
-              autoComplete="off"
-              onChange={(event) => setLocation(event.target.value)}
-            />
-          </div>
-
-          <div className={styles.fieldWide}>
-            <label className={styles.label} htmlFor={descriptionId}>
-              Description (optionnelle, texte simple)
-            </label>
-            <textarea
-              id={descriptionId}
-              className={styles.textarea}
-              value={description}
-              rows={3}
-              onChange={(event) => setDescription(event.target.value)}
-            />
-          </div>
-
-          <div className={styles.formActions}>
-            <Button type="submit" size="sm" variant="primary" disabled={saving}>
-              {saving ? "Enregistrement…" : editingId ? "Enregistrer" : "Ajouter l'événement"}
+        <div className={styles.formPanel}>
+          <div className={styles.formHeader}>
+            <h2 className={styles.formTitle} id="calendar-form-title">
+              {editingId ? "Modifier l'événement" : "Nouvel événement"}
+            </h2>
+            <Button size="sm" variant="ghost" aria-label="Fermer" onClick={closeForm}>
+              <span aria-hidden="true">✕</span>
             </Button>
-            {editingId ? (
-              <Button size="sm" variant="ghost" onClick={resetForm} disabled={saving}>
+          </div>
+          <form
+            className={styles.eventForm}
+            onSubmit={(event) => void submit(event)}
+            aria-busy={saving}
+          >
+            <div className={styles.titleField}>
+              <label className={styles.titleLabel} htmlFor={titleInputId}>
+                Titre de l'événement
+              </label>
+              <input
+                ref={titleInputRef}
+                id={titleInputId}
+                className={styles.titleInput}
+                type="text"
+                value={title}
+                placeholder="Ajouter un titre"
+                autoComplete="off"
+                required
+                aria-invalid={formError?.includes("titre") ? true : undefined}
+                onChange={(event) => setTitle(event.target.value)}
+              />
+            </div>
+
+            <div className={styles.formGrid}>
+              <div className={styles.checkboxRow}>
+                <input
+                  id={allDayId}
+                  type="checkbox"
+                  checked={allDay}
+                  onChange={(event) => toggleAllDay(event.target.checked)}
+                />
+                <label className={styles.label} htmlFor={allDayId}>
+                  Journée entière
+                </label>
+              </div>
+
+              <div className={styles.field}>
+                <label className={styles.label} htmlFor={startId}>
+                  Début
+                </label>
+                <input
+                  id={startId}
+                  className={styles.input}
+                  type={allDay ? "date" : "datetime-local"}
+                  value={allDay ? startDateValue : `${startDateValue}T${startTimeValue}`}
+                  required
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (allDay) {
+                      setStartDateValue(value);
+                      return;
+                    }
+                    const split = splitLocalInput(value);
+                    if (split) {
+                      setStartDateValue(split.date);
+                      setStartTimeValue(split.time);
+                    }
+                  }}
+                />
+              </div>
+
+              <div className={styles.field}>
+                <label className={styles.label} htmlFor={endId}>
+                  {allDay ? "Fin (exclue)" : "Fin"}
+                </label>
+                <input
+                  id={endId}
+                  className={styles.input}
+                  type={allDay ? "date" : "datetime-local"}
+                  value={allDay ? endDateValue : `${endDateValue}T${endTimeValue}`}
+                  required
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (allDay) {
+                      setEndDateValue(value);
+                      return;
+                    }
+                    const split = splitLocalInput(value);
+                    if (split) {
+                      setEndDateValue(split.date);
+                      setEndTimeValue(split.time);
+                    }
+                  }}
+                />
+              </div>
+
+              <div className={styles.field}>
+                <label className={styles.label} htmlFor={locationId}>
+                  Lieu (optionnel)
+                </label>
+                <input
+                  id={locationId}
+                  className={styles.input}
+                  type="text"
+                  value={location}
+                  autoComplete="off"
+                  onChange={(event) => setLocation(event.target.value)}
+                />
+              </div>
+
+              <div className={styles.fieldWide}>
+                <label className={styles.label} htmlFor={descriptionId}>
+                  Description (optionnelle, texte simple)
+                </label>
+                <textarea
+                  id={descriptionId}
+                  className={styles.textarea}
+                  value={description}
+                  rows={3}
+                  onChange={(event) => setDescription(event.target.value)}
+                />
+              </div>
+            </div>
+
+            {formError ? (
+              <p className={styles.formError} role="alert" aria-live="assertive">
+                {formError}
+              </p>
+            ) : null}
+
+            {confirmDeleteInDialog ? (
+              <div
+                className={styles.formDeleteConfirm}
+                role="alertdialog"
+                aria-labelledby={deleteConfirmId}
+              >
+                <p className={styles.confirmTitle} id={deleteConfirmId}>
+                  Supprimer « {title} » ?
+                </p>
+                <p className={styles.confirmDetail}>
+                  L'événement sera déplacé dans la corbeille du vault.
+                </p>
+                <div className={styles.formActions}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    disabled={deletingId !== null}
+                    onClick={() => {
+                      if (editingId) void remove(editingId);
+                    }}
+                  >
+                    {deletingId !== null ? "Suppression…" : "Confirmer la suppression"}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={deletingId !== null}
+                    onClick={() => setConfirmDeleteInDialog(false)}
+                  >
+                    Annuler la suppression
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            <div className={styles.formFooter}>
+              {editingId && !confirmDeleteInDialog ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className={styles.formDeleteBtn}
+                  aria-label={`Supprimer « ${title} »`}
+                  disabled={saving}
+                  onClick={() => setConfirmDeleteInDialog(true)}
+                >
+                  Supprimer
+                </Button>
+              ) : null}
+              <Button type="button" size="sm" variant="ghost" onClick={closeForm} disabled={saving}>
                 Annuler
               </Button>
-            ) : null}
-          </div>
-        </form>
-        {formError ? (
-          <p className={styles.formError} role="alert" aria-live="assertive">
-            {formError}
-          </p>
-        ) : null}
-      </section>
+              <Button type="submit" size="sm" variant="primary" disabled={saving}>
+                {saving ? "Enregistrement…" : editingId ? "Enregistrer" : "Ajouter l'événement"}
+              </Button>
+            </div>
+          </form>
+        </div>
+      </dialog>
 
       <section className={styles.listSection} aria-labelledby="calendar-list-title">
         <div className={styles.headerNavigation}>
@@ -906,7 +1251,6 @@ export function CalendarScreen({
             Aujourd'hui
           </Button>
         </div>
-
         {loading && agenda.items.length === 0 ? (
           <p className={styles.empty} role="status" aria-live="polite">
             Chargement des événements…
@@ -916,7 +1260,7 @@ export function CalendarScreen({
           <div className={styles.empty} role="status">
             <p>Aucun événement du jour ni dans les 30 jours suivants.</p>
             <p className={styles.emptyHint}>
-              Ajoutez un événement avec le formulaire ci-dessus ; il sera enregistré dans le
+              Cliquez sur « Nouvel événement » pour en créer un ; il sera enregistré dans le
               calendrier local du vault.
             </p>
           </div>
@@ -974,6 +1318,7 @@ export function CalendarScreen({
                 const h = getEventStartHour(item, timeZone);
                 return h === null || h < 7 || h > 22;
               });
+              const placedEvents = placeTimedEvents(timedItems, timeZone);
 
               return (
                 <>
@@ -981,36 +1326,42 @@ export function CalendarScreen({
                     <div className={styles.allDaySection}>
                       <span className={styles.allDayLabel}>Journée entière</span>
                       <ul className={styles.allDayItems}>
-                        {allDayItems.map((item) => renderEventCard(item, anchorDate, true))}
+                        {allDayItems.map((item) => renderEventCard(item, anchorDate))}
                       </ul>
                     </div>
                   )}
 
                   <div className={styles.timelineGrid}>
-                    {anchorDate === todayDate && nowPercent !== null && (
-                      <div className={styles.currentTimeLine} style={{ top: `${nowPercent}%` }}>
-                        <span className={styles.currentTimeDot} />
+                    {HOURS.map((hourStr) => (
+                      <div key={hourStr} className={styles.timelineRow}>
+                        <div className={styles.timelineGutter}>{hourStr}</div>
+                        <div className={styles.timelineSlot} />
                       </div>
-                    )}
+                    ))}
 
-                    {HOURS.map((hourStr, idx) => {
-                      const hourNum = 7 + idx;
-                      const hourEvents = timedItems.filter(
-                        (item) => getEventStartHour(item, timeZone) === hourNum,
-                      );
-                      return (
-                        <div key={hourStr} className={styles.timelineRow}>
-                          <div className={styles.timelineGutter}>{hourStr}</div>
-                          <div className={styles.timelineSlot}>
-                            {hourEvents.length > 0 && (
-                              <ul className={styles.slotItems}>
-                                {hourEvents.map((item) => renderEventCard(item, anchorDate))}
-                              </ul>
-                            )}
-                          </div>
+                    <div className={styles.gridEventsLayer}>
+                      {placedEvents.map((entry) => (
+                        <div
+                          key={`${eventKey(entry.item)}:${anchorDate}`}
+                          className={styles.gridEventSlot}
+                          style={{
+                            top: `${entry.top}%`,
+                            height: `${entry.height}%`,
+                            left: `${entry.left}%`,
+                            width: `${entry.width}%`,
+                          }}
+                        >
+                          {renderTimedBlock(entry.item, anchorDate)}
                         </div>
-                      );
-                    })}
+                      ))}
+
+                      {/* Dans la couche des blocs et après eux : l'ordre du DOM la met au-dessus, WebKit compris. */}
+                      {anchorDate === todayDate && nowPercent !== null ? (
+                        <div className={styles.currentTimeLine} style={{ top: `${nowPercent}%` }}>
+                          <span className={styles.currentTimeDot} />
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
 
                   {outsideHoursItems.length > 0 && (
@@ -1068,7 +1419,7 @@ export function CalendarScreen({
                   );
                   return (
                     <div key={d} className={styles.multiDayAllDayCell}>
-                      {dayAllDay.map((item) => renderEventCard(item, d, true))}
+                      {dayAllDay.map((item) => renderGridChip(item, d))}
                     </div>
                   );
                 })}
@@ -1076,8 +1427,7 @@ export function CalendarScreen({
             )}
 
             <div className={styles.multiDayTimelineGrid}>
-              {HOURS.map((hourStr, idx) => {
-                const hourNum = 7 + idx;
+              {HOURS.map((hourStr) => {
                 return (
                   <div
                     key={hourStr}
@@ -1087,30 +1437,47 @@ export function CalendarScreen({
                     }}
                   >
                     <div className={styles.timelineGutter}>{hourStr}</div>
-                    {multiDays.map((d) => {
-                      const dayEvents = eventsOnDate(agenda.items, d)
-                        .filter((it) => !("date" in it.start))
-                        .filter((it) => getEventStartHour(it, timeZone) === hourNum);
-                      const isTodayCol = d === todayDate;
-                      return (
-                        <div key={d} className={styles.multiDaySlotCell}>
-                          {isTodayCol &&
-                            currentHourMinute?.date === d &&
-                            currentHourMinute.hour === hourNum && (
-                              <div
-                                className={styles.currentTimeLineCell}
-                                style={{
-                                  top: `${((currentHourMinute.minute ?? 0) / 60) * 100}%`,
-                                }}
-                              />
-                            )}
-                          {dayEvents.map((item) => renderEventCard(item, d, true))}
-                        </div>
-                      );
-                    })}
+                    {multiDays.map((d) => (
+                      <div key={d} className={styles.multiDaySlotCell} />
+                    ))}
                   </div>
                 );
               })}
+
+              <div
+                className={styles.multiDayEventsLayer}
+                style={{
+                  gridTemplateColumns: `56px repeat(${multiDays.length}, minmax(0, 1fr))`,
+                }}
+              >
+                <span />
+                {multiDays.map((d) => (
+                  <div key={d} className={styles.multiDayEventsCell}>
+                    {(placedByDay.get(d) ?? []).map((entry) => (
+                      <div
+                        key={`${eventKey(entry.item)}:${d}`}
+                        className={styles.gridEventSlot}
+                        style={{
+                          top: `${entry.top}%`,
+                          height: `${entry.height}%`,
+                          left: `${entry.left}%`,
+                          width: `${entry.width}%`,
+                        }}
+                      >
+                        {renderTimedBlock(entry.item, d)}
+                      </div>
+                    ))}
+
+                    {/* Même règle que la vue Jour : la ligne est dans la couche des blocs, après eux. */}
+                    {d === todayDate && nowPercent !== null ? (
+                      <div
+                        className={styles.currentTimeLineCell}
+                        style={{ top: `${nowPercent}%` }}
+                      />
+                    ) : null}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         ) : viewMode === "month" ? (
@@ -1148,7 +1515,7 @@ export function CalendarScreen({
                       </button>
                     </div>
                     <div className={styles.monthDayEventsList}>
-                      {dayEvents.slice(0, 3).map((item) => renderEventCard(item, d, true))}
+                      {dayEvents.slice(0, 3).map((item) => renderGridChip(item, d))}
                       {dayEvents.length > 3 && (
                         <span className={styles.moreEventsBadge}>
                           +{dayEvents.length - 3} autre(s)

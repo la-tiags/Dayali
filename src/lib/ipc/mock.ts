@@ -1,11 +1,13 @@
 import { addDays, eventsInRange } from "../agenda";
 import { MOCK_DEFAULT_CONFIG } from "../contracts/defaults";
 import type {
+  CalendarFeed,
   CalendarListResult,
   Config,
   ConfigSnapshot,
   DayState,
   EventTimePoint,
+  FeedAddInput,
   FeedStatus,
   FileRef,
   LocalCalendarEvent,
@@ -264,6 +266,8 @@ export function createMockIpc(options: MockIpcOptions = {}): MockIpc {
   let lists: ReminderList[] = [...(options.moduleData?.lists ?? [])];
   let events: LocalCalendarEvent[] = [...(options.moduleData?.calendarEvents ?? [])];
   let feeds: FeedStatus[] = [...(options.moduleData?.feeds ?? [])];
+  let calendarFeeds: CalendarFeed[] = [];
+  let seenPhotoIds: string[] = [];
   const reminderHistory = new Map<
     string,
     { status: "pending" | "applied"; action: ReminderReportInput["action"] }
@@ -455,6 +459,11 @@ export function createMockIpc(options: MockIpcOptions = {}): MockIpc {
       return clone(snapshotFor(vault));
     },
 
+    async systemAccentColor(): Promise<string | null> {
+      // Navigateur : pas de réglage système à lire, on renvoie le bleu macOS.
+      return "#0a84ff";
+    },
+
     async machineLocalGet(): Promise<MachineLocal> {
       return clone(machineLocal);
     },
@@ -573,6 +582,52 @@ export function createMockIpc(options: MockIpcOptions = {}): MockIpc {
       };
       feeds = [...feeds.filter((feed) => feed.feedId !== input.feedId), status];
       return clone(status);
+    },
+
+    async calendarFeedList(): Promise<CalendarFeed[]> {
+      return clone(calendarFeeds);
+    },
+
+    async calendarFeedAdd(input: FeedAddInput): Promise<CalendarFeed> {
+      const url = input.url.trim().replace(/^webcals?:\/\//i, "https://");
+      if (!/^https?:\/\/[^\s/]+/i.test(url)) {
+        throw new IpcError(
+          "E_SCHEMA_INVALID",
+          "L'adresse doit commencer par https:// (ou webcal://).",
+        );
+      }
+      if (calendarFeeds.some((feed) => feed.url === url)) {
+        throw new IpcError("E_SCHEMA_INVALID", "Ce calendrier est déjà ajouté.");
+      }
+      const feed: CalendarFeed = {
+        id: `feed-${calendarFeeds.length + 1}-${Math.abs(url.length)}`,
+        name: input.name.trim(),
+        url,
+        visibility: input.visibility,
+        color: input.color ?? null,
+        addedAt: now().toISOString(),
+        lastFetchedAt: now().toISOString(),
+        eventsCount: 0,
+        error: null,
+      };
+      calendarFeeds = [...calendarFeeds, feed];
+      return clone(feed);
+    },
+
+    async calendarFeedRemove(input: { feedId: string }): Promise<void> {
+      if (!calendarFeeds.some((feed) => feed.id === input.feedId)) {
+        throw new IpcError("E_NOT_FOUND", "Calendrier introuvable.");
+      }
+      calendarFeeds = calendarFeeds.filter((feed) => feed.id !== input.feedId);
+    },
+
+    async calendarFeedRefresh(input?: { feedId?: string }): Promise<CalendarFeed[]> {
+      calendarFeeds = calendarFeeds.map((feed) =>
+        input?.feedId === undefined || input.feedId === feed.id
+          ? { ...feed, lastFetchedAt: now().toISOString(), error: null }
+          : feed,
+      );
+      return clone(calendarFeeds);
     },
 
     async reminderList(filter?: RemindersFilter): Promise<Reminder[]> {
@@ -738,6 +793,14 @@ export function createMockIpc(options: MockIpcOptions = {}): MockIpc {
     // Le mock navigateur ne fait aucun appel réseau : la photo embarquée reste affichée.
     async homePhotoUnsplash(): Promise<HomePhoto | null> {
       return null;
+    },
+
+    async homePhotoSeenList(): Promise<string[]> {
+      return [...seenPhotoIds];
+    },
+
+    async homePhotoSeenRecord(input: { id: string; logicalDate: string }): Promise<void> {
+      if (!seenPhotoIds.includes(input.id)) seenPhotoIds = [...seenPhotoIds, input.id];
     },
   };
 }

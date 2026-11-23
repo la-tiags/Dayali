@@ -49,7 +49,6 @@
   font-size: 0.8125rem;
 }
 
-.panel,
 .listSection {
   display: flex;
   flex-direction: column;
@@ -128,15 +127,147 @@
   color: var(--color-text);
 }
 
-.inspectorCard {
-  border-color: var(--color-accent);
+.headerActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
 }
 
-.createForm {
+/* Boîte de dialogue native de création / édition */
+.formDialog {
+  width: min(34rem, calc(100vw - var(--space-5)));
+  max-height: calc(100vh - var(--space-5));
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-bg-elevated);
+  color: var(--color-text);
+  box-shadow: var(--shadow-1);
+  overflow: auto;
+}
+
+.formDialog:modal {
+  overscroll-behavior: contain;
+}
+
+.formDialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background-color: rgb(0 0 0 / 55%);
+  backdrop-filter: blur(6px);
+}
+
+.formPanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  animation: form-enter 160ms ease-out;
+}
+
+@keyframes form-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.99);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .formPanel {
+    animation: none;
+  }
+}
+
+.formHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.formTitle {
+  font-size: 1.125rem;
+}
+
+.eventForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.titleField {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.titleLabel {
+  color: var(--color-text-faint);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.titleInput {
+  width: 100%;
+  padding: var(--space-1) 0 var(--space-2);
+  border: none;
+  border-bottom: 2px solid var(--color-border-strong);
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: clamp(1.25rem, 2vw, 1.5rem);
+  font-weight: 600;
+  transition: border-color 0.15s ease;
+}
+
+.titleInput::placeholder {
+  color: var(--color-text-faint);
+  font-weight: 500;
+}
+
+.titleInput:focus {
+  border-bottom-color: var(--color-accent);
+}
+
+.formGrid {
   display: grid;
   gap: var(--space-3);
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  align-items: end;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.formFooter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.formDeleteBtn {
+  margin-inline-end: auto;
+}
+
+.formDeleteConfirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  background-color: var(--color-warning-bg);
 }
 
 .field,
@@ -151,14 +282,14 @@
   grid-column: 1 / -1;
 }
 
-.checkboxField {
+.checkboxRow {
   display: flex;
+  grid-column: 1 / -1;
   align-items: center;
   gap: var(--space-2);
-  min-height: 2.5rem;
 }
 
-.checkboxField input {
+.checkboxRow input {
   width: 1.15rem;
   height: 1.15rem;
   accent-color: var(--color-accent);
@@ -436,14 +567,8 @@
   font-size: 0.8125rem;
 }
 
-@media (width <= 60rem) {
-  .createForm {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
 @media (width <= 40rem) {
-  .createForm {
+  .formGrid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -608,7 +733,7 @@
 .timelineRow {
   display: grid;
   grid-template-columns: 56px 1fr;
-  min-height: 48px;
+  height: 48px;
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -626,22 +751,117 @@
   border-left: 1px solid var(--color-border);
 }
 
-.slotItems {
+.gridEventsLayer {
+  position: absolute;
+  inset: 0 0 0 56px;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.gridEventSlot {
+  position: absolute;
+  padding: 1px 2px;
+}
+
+/*
+ * Bloc d'événement posé *sur* la grille : sa hauteur suit sa durée et sa position suit son
+ * heure, donc il ne pousse plus la ligne horaire (la grille reste une échelle de temps).
+ */
+.gridEvent {
   display: flex;
+  width: 100%;
+  height: 100%;
   flex-direction: column;
-  gap: var(--space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  gap: 1px;
+  overflow: clip;
+  padding: 2px var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--accent-base) 40%, var(--color-border));
+  border-left: 3px solid var(--accent-base);
+  border-radius: var(--radius-sm);
+  background-color: color-mix(in srgb, var(--accent-base) 16%, var(--color-bg-elevated));
+  color: var(--color-text);
+  font: inherit;
+  text-align: start;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+button.gridEvent:hover {
+  background-color: color-mix(in srgb, var(--accent-base) 24%, var(--color-bg-elevated));
+}
+
+span.gridEvent {
+  cursor: default;
+}
+
+.gridEventCancelled {
+  opacity: 0.65;
+  text-decoration: line-through;
+}
+
+.gridEventTitle {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.gridEventMeta {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Pastille compacte en flux : cases du mois, ligne « journée entière » des vues multi-jours. */
+.chipEvent {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  overflow: clip;
+  padding: 1px var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--accent-base) 34%, var(--color-border));
+  border-left: 3px solid var(--accent-base);
+  border-radius: var(--radius-sm);
+  background-color: color-mix(in srgb, var(--accent-base) 14%, var(--color-bg));
+  color: var(--color-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+button.chipEvent:hover {
+  background-color: color-mix(in srgb, var(--accent-base) 22%, var(--color-bg));
+}
+
+span.chipEvent {
+  cursor: default;
+}
+
+.chipEvent .gridEventTitle {
+  font-size: 0.75rem;
+}
+
+.gridEvent:focus-visible,
+.chipEvent:focus-visible {
+  outline: 2px solid var(--accent-base);
+  outline-offset: 1px;
 }
 
 .currentTimeLine {
   position: absolute;
-  left: 56px;
+  /* Rendue dans la couche des blocs (qui commence à 56 px) : elle repart donc de 0. */
+  left: 0;
   right: 0;
   height: 2px;
-  background-color: #eb4d3d;
-  z-index: 2;
+  /* Au-dessus des blocs, mais translucide : le texte de l'événement reste lisible dessous. */
+  background-color: color-mix(in srgb, #eb4d3d 62%, transparent);
+  z-index: 4;
   pointer-events: none;
 }
 
@@ -738,13 +958,27 @@
 }
 
 .multiDayTimelineGrid {
+  position: relative;
   display: flex;
   flex-direction: column;
 }
 
+.multiDayEventsLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  pointer-events: none;
+}
+
+.multiDayEventsCell {
+  position: relative;
+  min-width: 0;
+}
+
 .multiDayTimelineRow {
   display: grid;
-  min-height: 48px;
+  height: 48px;
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -766,8 +1000,8 @@
   left: 0;
   right: 0;
   height: 2px;
-  background-color: #eb4d3d;
-  z-index: 2;
+  background-color: color-mix(in srgb, #eb4d3d 62%, transparent);
+  z-index: 4;
   pointer-events: none;
 }
 
@@ -782,7 +1016,7 @@
 
 .monthWeekdayHeader {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   background-color: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
 }
@@ -797,10 +1031,11 @@
 
 .monthGrid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
 }
 
 .monthDayCell {
+  min-width: 0;
   min-height: 100px;
   display: flex;
   flex-direction: column;
@@ -847,6 +1082,7 @@
 
 .monthDayEventsList {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: 4px;
   flex: 1;
@@ -967,4 +1203,10 @@
   margin: 0;
   font-size: 1.125rem;
   font-weight: 700;
+}
+
+/* Placés en fin de feuille : ces sélecteurs composés doivent suivre `.confirmTitle`/`.confirmDetail`. */
+.formDeleteConfirm .confirmTitle,
+.formDeleteConfirm .confirmDetail {
+  color: var(--color-text);
 }

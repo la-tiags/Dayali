@@ -41,6 +41,12 @@ describe("EndOfDayScreen", () => {
     resetIpc();
   });
 
+  function next(times = 1) {
+    for (let i = 0; i < times; i++) {
+      fireEvent.click(screen.getByRole("button", { name: /Suivant/i }));
+    }
+  }
+
   async function seed(items: Reminder[] = [MOCK_REMINDER]) {
     const ipc = createMockIpc({
       timeZone: "Europe/Paris",
@@ -70,13 +76,14 @@ describe("EndOfDayScreen", () => {
     );
 
     expect(await screen.findByRole("heading", { name: "Fin de journée" })).toBeInTheDocument();
+    next();
     expect(await screen.findByText("Tâche test 1")).toBeInTheDocument();
 
     const reportBtn = screen.getByRole("button", { name: /Reporter à demain : Tâche test 1/i });
     fireEvent.click(reportBtn);
 
     await waitFor(() => {
-      expect(screen.getByText("[Action: tomorrow]")).toBeInTheDocument();
+      expect(screen.getByText("[Reportée à demain]")).toBeInTheDocument();
     });
 
     const abandonBtn = screen.getByRole("button", { name: /Abandonner : Tâche test 1/i });
@@ -98,6 +105,8 @@ describe("EndOfDayScreen", () => {
       </MemoryRouter>,
     );
 
+    expect(await screen.findByRole("heading", { name: "Fin de journée" })).toBeInTheDocument();
+    next();
     expect(await screen.findByText("Tâche test 1")).toBeInTheDocument();
 
     const reportBtn = screen.getByRole("button", { name: /Reporter à demain : Tâche test 1/i });
@@ -118,6 +127,7 @@ describe("EndOfDayScreen", () => {
     );
 
     expect(await screen.findByRole("heading", { name: "Fin de journée" })).toBeInTheDocument();
+    next(2);
 
     const input = screen.getByLabelText(/Ajouter une tâche/i);
     fireEvent.change(input, { target: { value: "Nouvelle tâche demain" } });
@@ -125,14 +135,46 @@ describe("EndOfDayScreen", () => {
 
     expect(await screen.findByText("Nouvelle tâche demain")).toBeInTheDocument();
 
+    next();
+    expect(await screen.findByRole("heading", { name: "Bilan de la journée" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Agenda de demain/i })).toBeInTheDocument();
+
     const finishBtn = screen.getByRole("button", { name: /Bonne soirée/i });
     fireEvent.click(finishBtn);
 
     expect(await screen.findByRole("heading", { name: "Bonne soirée ! 🌙" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Résumé du jour" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /Accomplissements du jour/i })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /Tâches pour demain/i })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /Agenda de demain/i })).toBeInTheDocument();
+    // L'écran de clôture ne garde que « Bonne soirée » et le retour au dashboard.
+    expect(screen.queryByRole("heading", { name: "Bilan de la journée" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /Agenda de demain/i })).toBeNull();
+    expect(screen.queryByText(/est enregistré/i)).toBeNull();
     expect(screen.getByRole("button", { name: /Retour au dashboard/i })).toBeInTheDocument();
+  });
+
+  it("lists only the tasks completed during the current day on the first step", async () => {
+    await seed([
+      {
+        ...MOCK_REMINDER,
+        id: "done-today",
+        title: "Faite aujourd'hui",
+        status: "done",
+        completedAt: "2026-10-26T10:00:00.000Z",
+      },
+      {
+        ...MOCK_REMINDER,
+        id: "done-before",
+        title: "Faite la semaine dernière",
+        status: "done",
+        completedAt: "2026-10-19T10:00:00.000Z",
+      },
+    ]);
+
+    render(
+      <MemoryRouter>
+        <EndOfDayScreen now={NOW} timeZone="Europe/Paris" locale="fr-FR" logicalDate="2026-10-26" />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Faite aujourd'hui")).toBeInTheDocument();
+    expect(screen.queryByText("Faite la semaine dernière")).toBeNull();
   });
 });

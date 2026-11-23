@@ -89,6 +89,10 @@ export interface Config {
     readonly dueReminders?: { readonly enabled?: boolean };
   };
   readonly appearance: {
+    /** Thème de l'interface. `auto` suit le système. */
+    readonly theme?: "auto" | "light" | "dark";
+    /** Couleur d'accent `#rrggbb` appliquée par src/lib/theme.ts. */
+    readonly accentColor?: string;
     readonly greeting: { variants: boolean };
     readonly homeImage?: {
       readonly mode?: "bundled" | "folder" | "unsplash";
@@ -208,7 +212,7 @@ export interface FeedOccurrence {
   readonly calendarId: string;
   readonly uid: string;
   readonly seriesUid: string;
-  readonly occurrenceStart: IsoDateTime | LocalDate;
+  readonly occurrenceStart: EventTimePoint | IsoDateTime | LocalDate;
   readonly isRecurring: boolean;
   readonly readOnly: true;
   readonly title: string;
@@ -219,6 +223,38 @@ export interface FeedOccurrence {
   readonly end: EventTimePoint;
   readonly status: CalendarStatus;
   readonly projectId: string | null;
+  /** Nom du calendrier abonné d'où vient l'occurrence. */
+  readonly calendarName?: string;
+  /** Couleur `#RRGGBB` choisie pour ce calendrier. */
+  readonly calendarColor?: string;
+}
+
+/** Confidentialité déclarée d'un calendrier abonné par URL. */
+export type FeedVisibility = "public" | "private";
+
+/**
+ * Calendrier iCal auquel on est abonné par URL (lecture seule). Propre à la machine : il n'est
+ * jamais écrit dans le vault. L'adresse d'un calendrier privé est, pour l'instant, stockée en
+ * clair sur cet ordinateur (le coffre chiffré n'existe pas encore).
+ */
+export interface CalendarFeed {
+  readonly id: string;
+  readonly name: string;
+  readonly url: string;
+  readonly visibility: FeedVisibility;
+  readonly color: string | null;
+  readonly addedAt: IsoDateTime;
+  readonly lastFetchedAt: IsoDateTime | null;
+  readonly eventsCount: number;
+  readonly error: string | null;
+}
+
+/** Entrée de `calendar_feed_add`. */
+export interface FeedAddInput {
+  readonly name: string;
+  readonly url: string;
+  readonly visibility: FeedVisibility;
+  readonly color?: string | null;
 }
 
 /** Type d'affichage commun Agenda : local (écrivable) ou flux (lecture seule). */

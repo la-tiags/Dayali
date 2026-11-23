@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { RouterProvider } from "react-router";
+import { AppearanceSync } from "@/app/AppearanceSync";
 import { BootstrapGate } from "@/app/BootstrapGate";
 import { Providers } from "@/app/providers";
 import { router } from "@/app/router";
@@ -32,6 +33,7 @@ export function App() {
   return (
     <Providers>
       <BootstrapGate>
+        <AppearanceSync />
         <RouterProvider router={router} />
         <UpdaterBootstrap />
       </BootstrapGate>

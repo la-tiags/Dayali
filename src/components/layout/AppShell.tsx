@@ -2,6 +2,8 @@ import { type MouseEvent, type ReactNode, useState } from "react";
 import { NavLink, useNavigate } from "react-router";
 import { SkipLink } from "../ui/SkipLink";
 import styles from "./AppShell.module.css";
+import { END_OF_DAY_FADE_STATE, EndOfDayTransition } from "./EndOfDayTransition";
+import { useFeedAutoRefresh } from "./useFeedAutoRefresh";
 
 export interface AppShellProps {
   vaultName: string;
@@ -14,19 +16,19 @@ export interface AppShellProps {
 export function AppShell({ vaultName, banners, onOpenVaultChooser, children }: AppShellProps) {
   const navigate = useNavigate();
   const [isTransitioning, setIsTransitioning] = useState(false);
+  useFeedAutoRefresh();
 
   const handleGoEndOfDay = (e: MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
     setIsTransitioning(true);
-    setTimeout(() => {
-      navigate("/end-of-day");
-    }, 220);
   };
 
   return (
     <div className={styles.shell}>
       {isTransitioning ? (
-        <div className={styles.fullscreenTransitionOverlay} aria-hidden="true" />
+        <EndOfDayTransition
+          onCovered={() => navigate("/end-of-day", { state: END_OF_DAY_FADE_STATE })}
+        />
       ) : null}
       <SkipLink />
       <aside className={styles.sidebar} aria-label="Navigation principale et vault">

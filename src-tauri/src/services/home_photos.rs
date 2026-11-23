@@ -16,6 +16,7 @@ use chrono::NaiveDate;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::error::{DayaliError, ErrorCode};
+use crate::services::home_photo_history;
 
 const API_BASE: &str = "https://api.unsplash.com";
 const DEFAULT_QUERY: &str = "landscape";
@@ -97,9 +98,21 @@ fn builtin_key() -> Option<&'static str> {
         .filter(|key| !key.is_empty())
 }
 
+/// Enregistre dans le vault qu'une photo est affichée ce jour-là (sans effet hors vault ; un échec
+/// d'écriture n'empêche jamais l'affichage de la photo).
+fn remember(vault: Option<(&Path, &str)>, photo: &HomePhoto, logical_date: &str) {
+    if let Some((root, machine_id)) = vault {
+        let _ = home_photo_history::record(root, machine_id, &photo.id, logical_date);
+    }
+}
+
 /// Photo du jour. `Ok(None)` sans clé : l'UI garde la photo embarquée.
+///
+/// `vault` = (racine, identifiant de machine) du vault ouvert : les identifiants déjà affichés y
+/// sont lus (pour ne jamais les reproposer) et la photo choisie y est enregistrée.
 pub async fn daily(
     data_dir: &Path,
+    vault: Option<(&Path, &str)>,
     logical_date: &str,
     query: Option<&str>,
 ) -> Result<Option<HomePhoto>, DayaliError> {
@@ -117,12 +130,22 @@ pub async fn daily(
 
     let mut cache: DayCache = read_json(&days_path).unwrap_or_default();
     if let Some(photo) = cache.photos.get(logical_date) {
+        remember(vault, photo, logical_date);
         return Ok(Some(photo.clone()));
     }
 
     let mut history: History = read_json(&history_path).unwrap_or_default();
+    // Déjà affichées : historique du vault (toutes machines) + ancien historique local.
+    let mut seen: Vec<String> = vault
+        .map(|(root, _)| home_photo_history::seen_ids(root))
+        .unwrap_or_default();
+    for id in &history.ids {
+        if !seen.contains(id) {
+            seen.push(id.clone());
+        }
+    }
     let query = sanitize_query(query);
-    let selected = fetch_unique(key, &query, &history.ids).await?;
+    let selected = fetch_unique(key, &query, &seen).await?;
 
     history.ids.retain(|id| id != &selected.photo.id);
     history.ids.push(selected.photo.id.clone());
@@ -135,6 +158,7 @@ pub async fn daily(
 
     write_json(&history_path, &history)?;
     write_json(&days_path, &cache)?;
+    remember(vault, &selected.photo, logical_date);
 
     // Règle Unsplash : l'application « télécharge » la photo comme fond d'écran,
     // donc elle doit notifier `download_location` (au plus une fois par photo).
@@ -201,15 +225,17 @@ async fn fetch_unique(
     query: &str,
     seen: &[String],
 ) -> Result<SelectedPhoto, DayaliError> {
-    let mut last = None;
     for _ in 0..ATTEMPTS {
         let photo = fetch_once(key, query).await?;
         if !seen.iter().any(|id| id == &photo.photo.id) {
             return Ok(photo);
         }
-        last = Some(photo);
     }
-    last.ok_or_else(|| network_error())
+    // Jamais de répétition : sans photo inédite, l'UI se rabat sur sa sélection locale.
+    Err(DayaliError::new(
+        ErrorCode::NotFound,
+        "Aucune photo inédite n'a été trouvée pour ces mots-clés.",
+    ))
 }
 
 async fn fetch_once(key: &str, query: &str) -> Result<SelectedPhoto, DayaliError> {

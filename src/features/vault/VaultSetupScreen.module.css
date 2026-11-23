@@ -208,7 +208,7 @@
 }
 
 .activeDot {
-  background-color: var(--color-accent-text, #2563eb);
+  background-color: var(--color-accent-text);
 }
 
 .progressLine {
@@ -218,7 +218,7 @@
 }
 
 .activeLine {
-  background-color: var(--color-accent-text, #2563eb);
+  background-color: var(--color-accent-text);
 }
 
 .wizardStepContent {

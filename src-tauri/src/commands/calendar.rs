@@ -9,9 +9,12 @@ use super::time_zone;
 use crate::app_state::AppState;
 use crate::commands::vault_ids;
 use crate::error::DayaliError;
-use crate::models::calendar::{CalendarListResult, LocalCalendarEvent};
+use crate::models::calendar::{
+    CalendarFeed, CalendarItem, CalendarListResult, FeedAddInput, LocalCalendarEvent,
+};
 use crate::models::common::FileRef;
 use crate::services::calendar as svc;
+use crate::services::feeds;
 
 /// Erreur unique des commandes non encore implémentées (temps 2).
 fn unsupported(operation: &str) -> DayaliError {
@@ -26,6 +29,8 @@ fn import_feed_stub() -> Result<crate::models::calendar::FeedStatus, DayaliError
 }
 
 /// Mapping Tauri : `calendar_list` ← `invoke("calendar_list", { from, to })`
+///
+/// Agenda local + calendriers abonnés (lus dans le cache : jamais de réseau ici).
 #[tauri::command]
 pub fn calendar_list(
     state: State<'_, AppState>,
@@ -33,13 +38,14 @@ pub fn calendar_list(
     to: String,
 ) -> Result<CalendarListResult, DayaliError> {
     let (root, _) = vault_ids(&state)?;
-    calendar_list_from_root(
-        &root,
-        &time_zone(&state).to_string(),
-        &from,
-        &to,
-        time_zone(&state),
-    )
+    let display_tz = time_zone(&state);
+    let (local, mut warnings) = svc::list_window(&root, &display_tz.to_string(), &from, &to, display_tz)?;
+    let (feed_items, feed_warnings) = feeds::occurrences(&state.paths, &from, &to, display_tz);
+    warnings.extend(feed_warnings);
+    Ok(CalendarListResult {
+        items: feeds::merge_items(local, feed_items, display_tz),
+        warnings,
+    })
 }
 
 fn calendar_list_from_root(
@@ -50,7 +56,45 @@ fn calendar_list_from_root(
     display_tz: chrono_tz::Tz,
 ) -> Result<CalendarListResult, DayaliError> {
     let (items, warnings) = svc::list_window(root, fallback_tz, from, to, display_tz)?;
-    Ok(CalendarListResult { items, warnings })
+    Ok(CalendarListResult {
+        items: items.into_iter().map(CalendarItem::Local).collect(),
+        warnings,
+    })
+}
+
+/// Calendriers auxquels l'utilisateur est abonné (par URL), avec leur état de synchronisation.
+#[tauri::command]
+pub fn calendar_feed_list(state: State<'_, AppState>) -> Result<Vec<CalendarFeed>, DayaliError> {
+    feeds::list(&state.paths)
+}
+
+/// Ajoute un calendrier par URL. Rien n'est enregistré si le lien n'est pas un calendrier lisible.
+#[tauri::command]
+pub async fn calendar_feed_add(
+    state: State<'_, AppState>,
+    input: FeedAddInput,
+) -> Result<CalendarFeed, DayaliError> {
+    let paths = state.paths.clone();
+    feeds::add(&paths, input).await
+}
+
+/// Supprime un abonnement et son cache.
+#[tauri::command]
+pub fn calendar_feed_remove(
+    state: State<'_, AppState>,
+    feed_id: String,
+) -> Result<(), DayaliError> {
+    feeds::remove(&state.paths, &feed_id)
+}
+
+/// Actualise un calendrier abonné, ou tous si `feed_id` est absent.
+#[tauri::command]
+pub async fn calendar_feed_refresh(
+    state: State<'_, AppState>,
+    feed_id: Option<String>,
+) -> Result<Vec<CalendarFeed>, DayaliError> {
+    let paths = state.paths.clone();
+    feeds::refresh(&paths, feed_id.as_deref()).await
 }
 
 /// Mapping Tauri : `calendar_save` ← `invoke("calendar_save", { event, expected? })`

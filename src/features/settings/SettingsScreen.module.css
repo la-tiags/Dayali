@@ -41,6 +41,52 @@
   font-weight: 600;
 }
 
+.appearanceGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+
+.groupLegend {
+  padding: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.choiceRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* Pastilles alignées en grille : les libellés ne dansent plus d'une ligne à l'autre. */
+.swatchGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: var(--space-2);
+}
+
+/* Pastille de couleur des accents : couleur choisie affichée telle quelle. */
+.swatch {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-inline-end: var(--space-2);
+  border: 1px solid rgb(0 0 0 / 25%);
+  border-radius: 999px;
+}
+
+.hint {
+  margin: 0;
+  color: var(--color-text-faint);
+  font-size: 0.875rem;
+}
+
 .vaultDetails {
   display: flex;
   flex-wrap: wrap;

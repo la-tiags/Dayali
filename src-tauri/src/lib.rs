@@ -126,13 +126,20 @@ pub fn run() {
             commands::calendar::calendar_save,
             commands::calendar::calendar_delete,
             commands::calendar::calendar_file_ref,
+            commands::calendar::calendar_feed_list,
+            commands::calendar::calendar_feed_add,
+            commands::calendar::calendar_feed_remove,
+            commands::calendar::calendar_feed_refresh,
             commands::reminder::reminder_list_defs,
             commands::reminder::reminder_list_save,
             commands::reminder::reminder_list_delete,
             commands::reminder::reminder_report,
             commands::home_photo::home_photo_unsplash,
+            commands::home_photo::home_photo_seen_list,
+            commands::home_photo::home_photo_seen_record,
             commands::app::app_paths,
             commands::app::app_version,
+            commands::app::system_accent_color,
         ])
         .run(tauri::generate_context!())
         .expect("échec du lancement de Dayali");

@@ -355,6 +355,7 @@ describe("parcours complet de l'étape (a)", () => {
     renderApp(["/calendar"]);
 
     expect(await screen.findByRole("heading", { name: "Agenda" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Nouvel événement" }));
     await user.type(await screen.findByLabelText("Titre de l'événement"), "Déjeuner d'équipe");
     await user.click(screen.getByLabelText("Journée entière"));
     await user.click(screen.getByRole("button", { name: "Ajouter l'événement" }));

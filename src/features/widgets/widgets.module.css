@@ -91,6 +91,177 @@
   margin: var(--space-2) 0;
 }
 
+/* Widget Agenda : une ligne par événement, horaire et lieu sous le titre. */
+.event {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  transition: background-color 0.15s ease;
+}
+
+.event:hover {
+  background-color: var(--color-surface);
+}
+
+.eventLine {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.eventTitle {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.eventTime {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.eventMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  padding-left: calc(6px + var(--space-2));
+}
+
+.eventLocation {
+  margin: 0;
+  color: var(--color-text-faint);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+/* Ligne de l'événement qui englobe l'instant présent. */
+.eventOngoing {
+  border-left: 2px solid var(--color-accent);
+  background-color: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+.eventOngoingBadge {
+  padding: 0 0.4rem;
+  border: 1px solid var(--color-accent);
+  border-radius: 999px;
+  color: var(--color-accent);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Journée terminée : plus rien à venir aujourd'hui dans ce widget. */
+.dayDone {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-3);
+  text-align: center;
+}
+
+.dayDoneIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 58px;
+  height: 58px;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  color: var(--color-accent-strong);
+  font-size: 1.9rem;
+  line-height: 1;
+}
+
+.dayDoneTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.dayDoneHint {
+  max-inline-size: 30ch;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+/* Événement en cours (vue Aujourd'hui). */
+.currentCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-accent);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  background-color: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+.currentTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.currentBadge {
+  color: var(--color-accent);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.currentTime {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.currentTitle {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.currentLocation {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+.currentProgress {
+  height: 3px;
+  margin-top: var(--space-1);
+  overflow: hidden;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+.currentProgress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background-color: var(--color-accent);
+}
+
 /* Widget Rappels : groupes « Aujourd'hui » / « Plus tard », case à cocher, badges. */
 .scroll {
   display: flex;

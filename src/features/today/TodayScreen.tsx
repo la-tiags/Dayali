@@ -244,12 +244,16 @@ export function TodayScreen({
 
   return (
     <div className={`${styles.screen} ${phase === "preview" ? styles.preview : ""}`.trim()}>
-      <div
-        className={styles.background}
-        style={backgroundStyle}
-        data-testid="home-background"
-        aria-hidden="true"
-      />
+      <div className={styles.background} data-testid="home-background" aria-hidden="true" />
+      {photo ? (
+        <div
+          key={photo.src}
+          className={styles.photoLayer}
+          style={backgroundStyle}
+          data-testid="home-photo"
+          aria-hidden="true"
+        />
+      ) : null}
       <div className={styles.backgroundBlur} style={backgroundStyle} aria-hidden="true" />
       <div className={styles.veil} aria-hidden="true" />
 

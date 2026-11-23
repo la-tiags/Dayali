@@ -1,6 +1,7 @@
 import { type CSSProperties, useCallback, useEffect, useId, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { photoOfTheDay } from "../../assets/home/photos";
+import { isEndOfDayFadeState } from "../../components/layout/EndOfDayTransition";
 import { Button } from "../../components/ui/Button";
 import { StatusBanners } from "../../components/ui/StatusBanners";
 import { addDays } from "../../lib/agenda";
@@ -41,6 +42,31 @@ const SHOOTING_STARS = [
   { top: 9, left: 36, delay: 5, cycle: 12, length: 170, angle: 24, dist: 44 },
   { top: 27, left: 44, delay: 6.3, cycle: 10, length: 110, angle: 32, dist: 30 },
 ] as const;
+
+/** Durée de la sortie d'une étape avant l'entrée de la suivante (doit suivre la CSS). */
+const STEP_EXIT_MS = 200;
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? true;
+}
+
+/**
+ * Clôture : le formulaire s'efface (500 ms), le ciel finit de tomber seul un instant, puis
+ * « Bonne soirée » apparaît. Doit rester cohérent avec la CSS (`closingOut`).
+ */
+const CLOSING_MS = 950;
+
+const STEP_TITLES = ["Accompli", "À régler", "Demain", "Bilan"] as const;
+
+/** Intensité de la nuit (voile + étoiles) à chaque étape : le ciel s'assombrit au fil du bilan. */
+const NIGHT_BY_STEP = [0.15, 0.4, 0.7, 0.9] as const;
+
+const INTENT_LABEL = {
+  tomorrow: "Reportée à demain",
+  replan: "Replanifiée",
+  abandon: "Abandonnée",
+  restore: "Restaurée",
+} as const;
 
 /** Générateur pseudo-aléatoire à graine fixe : le ciel est identique à chaque rendu. */
 function seededRandom(seed: number): () => number {
@@ -84,6 +110,25 @@ export function EndOfDayScreen({
   logicalDate: injectedLogicalDate,
 }: EndOfDayScreenProps) {
   const navigate = useNavigate();
+  // Arrivée via le bouton « Fin de journée » : les éléments apparaissent en fondu lent.
+  const slowEntry = isEndOfDayFadeState(useLocation().state);
+  /** Classe + délai du fondu lent d'arrivée (rien du tout pour une arrivée directe). */
+  const entryFade = (delayMs: number) =>
+    slowEntry
+      ? { className: styles.enterFade, style: { "--enter-delay": `${delayMs}ms` } as CSSProperties }
+      : { className: "", style: undefined };
+  /**
+   * Corps d'étape : le fondu est porté par chaque panneau et non par le conteneur. Une opacité sur
+   * le conteneur crée un « backdrop root » et supprimerait le `backdrop-filter` des panneaux
+   * pendant toute l'animation (le flou n'arriverait qu'à la fin du fondu).
+   */
+  const stepEntryFade = (delayMs: number) =>
+    slowEntry
+      ? {
+          className: styles.enterFadeChildren,
+          style: { "--enter-delay": `${delayMs}ms` } as CSSProperties,
+        }
+      : { className: "", style: undefined };
   // All hooks must be called unconditionally at the top level
   const now = useClock(30_000);
   const vault = useAppStore((state) => state.vault);
@@ -132,37 +177,48 @@ export function EndOfDayScreen({
       { action: "tomorrow" | "replan" | "abandon" | "restore"; newDueDate?: LocalDate }
     >
   >({});
+  const [step, setStep] = useState<number>(0);
   const [isFinished, setIsFinished] = useState(false);
-  const [summaryStats, setSummaryStats] = useState({ processed: 0, quickAdded: 0 });
+  const [finishing, setFinishing] = useState(false);
+  const [direction, setDirection] = useState<1 | -1>(1);
+  const [leaving, setLeaving] = useState(false);
+  const [closing, setClosing] = useState(false);
+  // Pas d'animation de glissement à l'arrivée : l'écran entier apparaît déjà en fondu.
+  const [animateSteps, setAnimateSteps] = useState(false);
+  const leaveTimer = useRef<number | undefined>(undefined);
+  const [quickAddedCount, setQuickAddedCount] = useState(0);
 
   const titleId = useId();
   const quickAddId = useId();
-  const screenRef = useRef<HTMLDivElement>(null);
-  const finishRef = useRef<HTMLDivElement>(null);
 
-  // Assombrit progressivement l'arrière-plan quand on approche du bas de la page.
-  // Écoute en phase de capture : fonctionne quel que soit le conteneur qui scrolle.
+  // Chaque étape (et la clôture) s'ouvre en haut de page.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: on remonte à chaque changement d'étape.
   useEffect(() => {
-    // Le conteneur n'existe qu'une fois le vault chargé et le bilan affiché.
-    if (!vault || loading || isFinished) return;
-    const update = () => {
-      const screen = screenRef.current;
-      const finish = finishRef.current;
-      if (!screen || !finish) return;
-      const viewportHeight = window.innerHeight;
-      const { top } = finish.getBoundingClientRect();
-      // 0 tant que le bouton final est hors de vue, 1 quand il est bien remonté dans l'écran.
-      const progress = Math.min(1, Math.max(0, (viewportHeight - top) / (viewportHeight * 0.55)));
-      screen.style.setProperty("--night", progress.toFixed(3));
-    };
-    update();
-    window.addEventListener("scroll", update, { capture: true, passive: true });
-    window.addEventListener("resize", update);
-    return () => {
-      window.removeEventListener("scroll", update, { capture: true });
-      window.removeEventListener("resize", update);
-    };
-  }, [vault, loading, isFinished]);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, [step, isFinished]);
+
+  useEffect(() => () => window.clearTimeout(leaveTimer.current), []);
+
+  /** Sortie en fondu de l'étape courante, puis entrée de la suivante. */
+  const runAfterExit = (dir: 1 | -1, action: () => void) => {
+    setDirection(dir);
+    if (prefersReducedMotion()) {
+      action();
+      return;
+    }
+    setLeaving(true);
+    leaveTimer.current = window.setTimeout(() => {
+      action();
+      setLeaving(false);
+    }, STEP_EXIT_MS);
+  };
+
+  const goToStep = (target: number) => {
+    if (leaving) return;
+    setAnimateSteps(true);
+    runAfterExit(target > step ? 1 : -1, () => setStep(target));
+  };
 
   const handleCloseNavigation = useCallback(() => {
     navigate("/dashboard");
@@ -303,6 +359,8 @@ export function EndOfDayScreen({
 
   // Finalize / Close "Bonne soirée"
   const handleFinish = async () => {
+    if (finishing) return;
+    setFinishing(true);
     let addedCount = 0;
     for (const task of draftTasks) {
       try {
@@ -333,12 +391,19 @@ export function EndOfDayScreen({
       }
     }
 
-    setSummaryStats({
-      processed: Object.keys(intents).length,
-      quickAdded: addedCount,
-    });
-    setIsFinished(true);
+    setQuickAddedCount(addedCount);
     clearEndOfDayDraft(vaultRoot, logicalDate);
+    if (prefersReducedMotion()) {
+      setIsFinished(true);
+      setFinishing(false);
+      return;
+    }
+    setClosing(true);
+    leaveTimer.current = window.setTimeout(() => {
+      setIsFinished(true);
+      setClosing(false);
+      setFinishing(false);
+    }, CLOSING_MS);
   };
 
   const banners = (
@@ -364,18 +429,36 @@ export function EndOfDayScreen({
   }
 
   const openReminders = reminders.filter((r) => r.status === "open");
-  const doneReminders = reminders.filter((r) => r.status === "done");
   const abandonedReminders = reminders.filter((r) => r.status === "abandoned");
+  // Tâches terminées pendant la journée logique en cours (et pas celles des jours précédents).
+  const dayStartHour = config?.dayStartHour ?? 0;
+  const doneReminders = reminders.filter(
+    (r) =>
+      r.status === "done" &&
+      r.completedAt !== null &&
+      logicalDay(r.completedAt, dayStartHour, timeZone) === logicalDate,
+  );
+  const decisions = Object.values(intents);
+  const postponedCount = decisions.filter(
+    (i) => i.action === "tomorrow" || i.action === "replan",
+  ).length;
+  const abandonedCount = decisions.filter((i) => i.action === "abandon").length;
+  const addedCount = isFinished ? quickAddedCount : draftTasks.length;
   const tomorrowReminders = reminders.filter(
     (r) =>
       intents[r.id]?.action === "tomorrow" ||
       (intents[r.id]?.action === "replan" && intents[r.id]?.newDueDate === tomorrow),
   );
 
+  const lastStep = STEP_TITLES.length - 1;
+  const nightLevel = isFinished || closing ? 1 : (NIGHT_BY_STEP[step] ?? 1);
+  const screenStyle = { "--night": nightLevel } as CSSProperties;
+  const showSummary = !isFinished && step === lastStep;
+
   return (
     <div
-      ref={screenRef}
       className={[styles.screen, isFinished ? styles.screenFinished : ""].filter(Boolean).join(" ")}
+      style={screenStyle}
     >
       <div className={styles.background} aria-hidden="true" style={backgroundStyle} />
       <div className={styles.veil} aria-hidden="true" />
@@ -403,7 +486,7 @@ export function EndOfDayScreen({
           />
         ))}
       </div>
-      {isFinished ? (
+      {isFinished || closing ? (
         <div className={styles.stars} aria-hidden="true">
           {SHOOTING_STARS.map((star) => (
             <span
@@ -427,122 +510,23 @@ export function EndOfDayScreen({
 
       {banners ? <div className={styles.banners}>{banners}</div> : null}
 
-      <main className={styles.content}>
-        {isFinished ? (
-          <div className={styles.layout}>
-            <header className={styles.header}>
-              <p className={styles.eyebrow}>
-                Fin de journée terminée · {formatLocalDateLong(logicalDate, locale)}
-              </p>
-              <h1 id={titleId} className={styles.title}>
-                Bonne soirée ! 🌙
-              </h1>
-              <p className={styles.meta}>
-                Votre bilan de la journée du {formatLocalDateLong(logicalDate, locale)} est
-                enregistré.
-              </p>
-            </header>
-
-            {/* Résumé du jour */}
-            <section aria-labelledby="bilan-section-finished" className={styles.section}>
-              <h2 id="bilan-section-finished" className={styles.sectionTitle}>
-                Résumé du jour
-              </h2>
-              <div className={styles.statsGrid}>
-                <div className={styles.statCard}>
-                  <div className={styles.statValue}>{doneReminders.length}</div>
-                  <div className={styles.statLabel}>Tâches faites</div>
-                </div>
-                <div className={styles.statCard}>
-                  <div className={styles.statValue}>{summaryStats.processed}</div>
-                  <div className={styles.statLabel}>Tâches traitées / reportées</div>
-                </div>
-                <div className={styles.statCard}>
-                  <div className={styles.statValue}>
-                    {summaryStats.quickAdded + (calendarTomorrow?.items.length ?? 0)}
-                  </div>
-                  <div className={styles.statLabel}>Pour demain</div>
-                </div>
-              </div>
-            </section>
-
-            {/* Accomplissements du jour / Tâches faites */}
-            <section aria-labelledby="finished-done-tasks" className={styles.section}>
-              <h2 id="finished-done-tasks" className={styles.sectionTitle}>
-                Accomplissements du jour ({doneReminders.length})
-              </h2>
-              {doneReminders.length === 0 ? (
-                <p className={styles.emptyNote}>Aucune tâche terminée aujourd'hui.</p>
-              ) : (
-                <ul className={styles.taskList}>
-                  {doneReminders.map((reminder) => (
-                    <li key={reminder.id} className={styles.doneTaskItem}>
-                      <span className={styles.doneCheckBadge} aria-hidden="true">
-                        ✓
-                      </span>
-                      <span className={styles.doneTaskTitle}>{reminder.title}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-
-            {/* Prévu pour demain */}
-            <section aria-labelledby="finished-tomorrow-tasks" className={styles.section}>
-              <h2 id="finished-tomorrow-tasks" className={styles.sectionTitle}>
-                Tâches pour demain ({formatLocalDateLong(tomorrow, locale)})
-              </h2>
-              {draftTasks.length === 0 && tomorrowReminders.length === 0 ? (
-                <p className={styles.emptyNote}>Aucune tâche prévue pour demain.</p>
-              ) : (
-                <ul className={styles.taskList}>
-                  {tomorrowReminders.map((reminder) => (
-                    <li key={reminder.id} className={styles.taskItem}>
-                      <div className={styles.taskTitleInfo}>
-                        <strong className={styles.taskTitle}>{reminder.title}</strong>
-                        <span className={styles.taskIntent}>[Reportée à demain]</span>
-                      </div>
-                    </li>
-                  ))}
-                  {draftTasks.map((t) => (
-                    <li key={t.tempId} className={styles.taskItem}>
-                      <div className={styles.taskTitleInfo}>
-                        <strong className={styles.taskTitle}>{t.title}</strong>
-                        <span className={styles.taskIntent}>[Nouvelle tâche]</span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-
-            {/* Agenda de demain */}
-            <section aria-labelledby="finished-agenda-tomorrow" className={styles.section}>
-              <h2 id="finished-agenda-tomorrow" className={styles.sectionTitle}>
-                Agenda de demain ({formatLocalDateLong(tomorrow, locale)})
-              </h2>
-              {!calendarTomorrow || calendarTomorrow.items.length === 0 ? (
-                <p className={styles.emptyNote}>Aucun événement prévu demain dans l'agenda.</p>
-              ) : (
-                <ul className={styles.taskList}>
-                  {calendarTomorrow.items.map((ev) => (
-                    <li key={ev.uid} className={styles.agendaItem}>
-                      <strong>{ev.title}</strong>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-
-            <div className={styles.finishedBack}>
-              <Button size="sm" variant="ghost" onClick={handleCloseNavigation}>
-                Retour au dashboard
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <div className={styles.layout}>
-            <div className={styles.topBar}>
+      <main
+        className={[styles.content, slowEntry ? styles.contentSlow : ""].filter(Boolean).join(" ")}
+      >
+        <div
+          className={[
+            styles.layout,
+            isFinished ? styles.layoutFinished : "",
+            closing ? styles.layoutClosing : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        >
+          {isFinished ? null : (
+            <div
+              className={[styles.topBar, entryFade(250).className].filter(Boolean).join(" ")}
+              style={entryFade(250).style}
+            >
               <Button
                 variant="ghost"
                 size="sm"
@@ -552,240 +536,365 @@ export function EndOfDayScreen({
                 ← Retour au dashboard
               </Button>
             </div>
+          )}
 
-            <header className={styles.header}>
-              <p className={styles.eyebrow}>
-                Fin de journée · {formatLocalDateLong(logicalDate, locale)}
-              </p>
-              <h1 id={titleId} className={styles.title}>
-                Fin de journée
-              </h1>
-              <p className={styles.meta}>
-                Bilan de la journée du {formatLocalDateLong(logicalDate, locale)}
-              </p>
-            </header>
+          <header
+            className={[styles.header, entryFade(550).className].filter(Boolean).join(" ")}
+            style={entryFade(550).style}
+          >
+            <p className={styles.eyebrow}>
+              {isFinished ? "Fin de journée terminée" : "Fin de journée"} ·{" "}
+              {formatLocalDateLong(logicalDate, locale)}
+            </p>
+            <h1 id={titleId} className={styles.title}>
+              {isFinished ? "Bonne soirée ! 🌙" : "Fin de journée"}
+            </h1>
+            {isFinished ? null : (
+              <ol className={styles.stepper} aria-label="Progression">
+                {STEP_TITLES.map((label, index) => (
+                  <li
+                    key={label}
+                    className={[
+                      styles.stepDot,
+                      index === step ? styles.stepDotActive : "",
+                      index < step ? styles.stepDotDone : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    aria-current={index === step ? "step" : undefined}
+                  >
+                    <span className={styles.stepNumber}>{index + 1}</span>
+                    <span className={styles.stepName}>{label}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </header>
 
-            {loadError ? (
-              <div role="alert" className={styles.alertBox}>
-                Erreur de chargement : {loadError}
-              </div>
-            ) : null}
+          {loadError ? (
+            <div role="alert" className={styles.alertBox}>
+              Erreur de chargement : {loadError}
+            </div>
+          ) : null}
 
-            {loading ? (
-              <p role="status" className={styles.loadingText}>
-                Chargement du bilan…
-              </p>
-            ) : (
-              <>
-                {/* Bilan du jour */}
-                <section aria-labelledby="bilan-section" className={styles.section}>
-                  <h2 id="bilan-section" className={styles.sectionTitle}>
-                    Résumé du jour
-                  </h2>
-                  <div className={styles.statsGrid}>
-                    <div className={styles.statCard}>
-                      <div className={styles.statValue}>{doneReminders.length}</div>
-                      <div className={styles.statLabel}>Tâches faites</div>
-                    </div>
-                    <div className={styles.statCard}>
-                      <div className={styles.statValue}>{openReminders.length}</div>
-                      <div className={styles.statLabel}>Tâches ouvertes</div>
-                    </div>
-                    <div className={styles.statCard}>
-                      <div className={styles.statValue}>{abandonedReminders.length}</div>
-                      <div className={styles.statLabel}>Tâches abandonnées</div>
-                    </div>
-                  </div>
-                </section>
+          {loading ? (
+            <p role="status" className={styles.loadingText}>
+              Chargement du bilan…
+            </p>
+          ) : (
+            <>
+              {isFinished ? null : (
+                <div
+                  key={step}
+                  style={animateSteps ? undefined : stepEntryFade(850).style}
+                  className={[
+                    styles.stepBody,
+                    !animateSteps
+                      ? stepEntryFade(850).className
+                      : leaving
+                        ? direction === 1
+                          ? styles.stepLeaveForward
+                          : styles.stepLeaveBack
+                        : direction === 1
+                          ? styles.stepEnterForward
+                          : styles.stepEnterBack,
+                  ].join(" ")}
+                >
+                  {/* Étape 1 : ce qui a été fait */}
+                  {!isFinished && step === 0 ? (
+                    <section aria-labelledby="step-done" className={styles.section}>
+                      <h2 id="step-done" className={styles.sectionTitle}>
+                        Accomplissements du jour ({doneReminders.length})
+                      </h2>
+                      {doneReminders.length === 0 ? (
+                        <p className={styles.emptyNote}>Aucune tâche terminée aujourd'hui.</p>
+                      ) : (
+                        <ul className={styles.taskList}>
+                          {doneReminders.map((reminder) => (
+                            <li key={reminder.id} className={styles.doneTaskItem}>
+                              <span className={styles.doneCheckBadge} aria-hidden="true">
+                                ✓
+                              </span>
+                              <span className={styles.doneTaskTitle}>{reminder.title}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </section>
+                  ) : null}
 
-                {/* Tâches non terminées */}
-                <section aria-labelledby="unresolved-tasks" className={styles.section}>
-                  <h2 id="unresolved-tasks" className={styles.sectionTitle}>
-                    Tâches non terminées ({openReminders.length})
-                  </h2>
-                  {openReminders.length === 0 ? (
-                    <p>Aucune tâche ouverte. Excellent travail !</p>
-                  ) : (
-                    <ul className={styles.taskList}>
-                      {openReminders.map((reminder) => {
-                        const intent = intents[reminder.id];
-                        const taskErr = taskErrors[reminder.id];
-                        const isReplanOpen = showReplanInputFor === reminder.id;
+                  {/* Étape 2 : tâches non terminées à reporter / replanifier / abandonner */}
+                  {!isFinished && step === 1 ? (
+                    <>
+                      <section aria-labelledby="unresolved-tasks" className={styles.section}>
+                        <h2 id="unresolved-tasks" className={styles.sectionTitle}>
+                          Tâches non terminées ({openReminders.length})
+                        </h2>
+                        {openReminders.length === 0 ? (
+                          <p className={styles.emptyNote}>
+                            Aucune tâche ouverte. Excellent travail !
+                          </p>
+                        ) : (
+                          <ul className={styles.taskList}>
+                            {openReminders.map((reminder) => {
+                              const intent = intents[reminder.id];
+                              const taskErr = taskErrors[reminder.id];
+                              const isReplanOpen = showReplanInputFor === reminder.id;
 
-                        return (
-                          <li key={reminder.id} className={styles.taskItem}>
-                            <div className={styles.taskContentRow}>
+                              return (
+                                <li key={reminder.id} className={styles.taskItem}>
+                                  <div className={styles.taskContentRow}>
+                                    <div className={styles.taskTitleInfo}>
+                                      <strong className={styles.taskTitle}>{reminder.title}</strong>
+                                      {reminder.dueDate ? (
+                                        <span className={styles.taskDueDate}>
+                                          (Échéance : {reminder.dueDate})
+                                        </span>
+                                      ) : null}
+                                      {intent ? (
+                                        <span className={styles.taskIntent}>
+                                          [{INTENT_LABEL[intent.action]}]
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <div className={styles.taskActions}>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => void handleAction(reminder.id, "tomorrow")}
+                                        aria-label={`Reporter à demain : ${reminder.title}`}
+                                      >
+                                        Reporter à demain
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() =>
+                                          setShowReplanInputFor(isReplanOpen ? null : reminder.id)
+                                        }
+                                        aria-label={`Replanifier : ${reminder.title}`}
+                                      >
+                                        Replanifier…
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => void handleAction(reminder.id, "abandon")}
+                                        aria-label={`Abandonner : ${reminder.title}`}
+                                      >
+                                        Abandonner
+                                      </Button>
+                                    </div>
+                                  </div>
+
+                                  {isReplanOpen ? (
+                                    <div className={styles.replanForm}>
+                                      <input
+                                        type="date"
+                                        aria-label="Nouvelle date d'échéance"
+                                        className={styles.dateInput}
+                                        value={replanDateInputs[reminder.id] ?? tomorrow}
+                                        onChange={(e) =>
+                                          setReplanDateInputs({
+                                            ...replanDateInputs,
+                                            [reminder.id]: e.target.value,
+                                          })
+                                        }
+                                      />
+                                      <Button
+                                        size="sm"
+                                        onClick={() =>
+                                          void handleAction(
+                                            reminder.id,
+                                            "replan",
+                                            replanDateInputs[reminder.id] ?? tomorrow,
+                                          )
+                                        }
+                                      >
+                                        Valider replanification
+                                      </Button>
+                                    </div>
+                                  ) : null}
+
+                                  {taskErr ? (
+                                    <div role="alert" className={styles.taskError}>
+                                      Erreur : {taskErr}
+                                    </div>
+                                  ) : null}
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                      </section>
+
+                      {abandonedReminders.length > 0 ? (
+                        <section aria-labelledby="abandoned-section" className={styles.section}>
+                          <h2 id="abandoned-section" className={styles.sectionTitle}>
+                            Tâches abandonnées ({abandonedReminders.length})
+                          </h2>
+                          <ul className={styles.taskList}>
+                            {abandonedReminders.map((reminder) => (
+                              <li key={reminder.id} className={styles.abandonedItem}>
+                                <span className={styles.abandonedTitle}>{reminder.title}</span>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => void handleAction(reminder.id, "restore")}
+                                  aria-label={`Restaurer ${reminder.title}`}
+                                >
+                                  Restaurer
+                                </Button>
+                              </li>
+                            ))}
+                          </ul>
+                        </section>
+                      ) : null}
+                    </>
+                  ) : null}
+
+                  {/* Étape 3 : tâches à ajouter pour demain */}
+                  {!isFinished && step === 2 ? (
+                    <section aria-labelledby="quick-add-section" className={styles.section}>
+                      <h2 id="quick-add-section" className={styles.sectionTitle}>
+                        Tâches pour demain ({formatLocalDateLong(tomorrow, locale)})
+                      </h2>
+                      {tomorrowReminders.length > 0 ? (
+                        <ul className={styles.taskList}>
+                          {tomorrowReminders.map((reminder) => (
+                            <li key={reminder.id} className={styles.taskItem}>
                               <div className={styles.taskTitleInfo}>
                                 <strong className={styles.taskTitle}>{reminder.title}</strong>
-                                {reminder.dueDate ? (
-                                  <span className={styles.taskDueDate}>
-                                    (Échéance : {reminder.dueDate})
-                                  </span>
-                                ) : null}
-                                {intent ? (
-                                  <span className={styles.taskIntent}>
-                                    [Action: {intent.action}]
-                                  </span>
-                                ) : null}
+                                <span className={styles.taskIntent}>[Reportée à demain]</span>
                               </div>
-                              <div className={styles.taskActions}>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => void handleAction(reminder.id, "tomorrow")}
-                                  aria-label={`Reporter à demain : ${reminder.title}`}
-                                >
-                                  Reporter à demain
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() =>
-                                    setShowReplanInputFor(isReplanOpen ? null : reminder.id)
-                                  }
-                                  aria-label={`Replanifier : ${reminder.title}`}
-                                >
-                                  Replanifier…
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => void handleAction(reminder.id, "abandon")}
-                                  aria-label={`Abandonner : ${reminder.title}`}
-                                >
-                                  Abandonner
-                                </Button>
-                              </div>
-                            </div>
-
-                            {isReplanOpen ? (
-                              <div className={styles.replanForm}>
-                                <input
-                                  type="date"
-                                  aria-label="Nouvelle date d'échéance"
-                                  className={styles.dateInput}
-                                  value={replanDateInputs[reminder.id] ?? tomorrow}
-                                  onChange={(e) =>
-                                    setReplanDateInputs({
-                                      ...replanDateInputs,
-                                      [reminder.id]: e.target.value,
-                                    })
-                                  }
-                                />
-                                <Button
-                                  size="sm"
-                                  onClick={() =>
-                                    void handleAction(
-                                      reminder.id,
-                                      "replan",
-                                      replanDateInputs[reminder.id] ?? tomorrow,
-                                    )
-                                  }
-                                >
-                                  Valider replanification
-                                </Button>
-                              </div>
-                            ) : null}
-
-                            {taskErr ? (
-                              <div role="alert" className={styles.taskError}>
-                                Erreur : {taskErr}
-                              </div>
-                            ) : null}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </section>
-
-                {/* Tâches abandonnées / restaurables */}
-                {abandonedReminders.length > 0 ? (
-                  <section aria-labelledby="abandoned-section" className={styles.section}>
-                    <h2 id="abandoned-section" className={styles.sectionTitle}>
-                      Tâches abandonnées ({abandonedReminders.length})
-                    </h2>
-                    <ul className={styles.taskList}>
-                      {abandonedReminders.map((reminder) => (
-                        <li key={reminder.id} className={styles.abandonedItem}>
-                          <span className={styles.abandonedTitle}>{reminder.title}</span>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => void handleAction(reminder.id, "restore")}
-                            aria-label={`Restaurer ${reminder.title}`}
-                          >
-                            Restaurer
-                          </Button>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                ) : null}
-
-                {/* Saisie rapide de tâches pour demain */}
-                <section aria-labelledby="quick-add-section" className={styles.section}>
-                  <h2 id="quick-add-section" className={styles.sectionTitle}>
-                    Tâches pour demain ({formatLocalDateLong(tomorrow, locale)})
-                  </h2>
-                  <label htmlFor={quickAddId} className={styles.quickAddLabel}>
-                    Ajouter une tâche (Appuyez sur Entrée) :
-                  </label>
-                  <input
-                    id={quickAddId}
-                    type="text"
-                    value={quickAddInput}
-                    onChange={(e) => setQuickAddInput(e.target.value)}
-                    onKeyDown={handleQuickAddKeyDown}
-                    placeholder="Ex: Préparer la réunion de cadrage..."
-                    className={styles.textInput}
-                  />
-                  {draftTasks.length > 0 ? (
-                    <ul className={styles.quickAddList}>
-                      {draftTasks.map((t) => (
-                        <li key={t.tempId} className={styles.quickAddItem}>
-                          <span>{t.title}</span>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => removeQuickAdd(t.tempId)}
-                          >
-                            Supprimer
-                          </Button>
-                        </li>
-                      ))}
-                    </ul>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      <label htmlFor={quickAddId} className={styles.quickAddLabel}>
+                        Ajouter une tâche (Appuyez sur Entrée) :
+                      </label>
+                      <input
+                        id={quickAddId}
+                        type="text"
+                        value={quickAddInput}
+                        onChange={(e) => setQuickAddInput(e.target.value)}
+                        onKeyDown={handleQuickAddKeyDown}
+                        placeholder="Ex: Préparer la réunion de cadrage..."
+                        className={styles.textInput}
+                      />
+                      {draftTasks.length > 0 ? (
+                        <ul className={styles.quickAddList}>
+                          {draftTasks.map((t) => (
+                            <li key={t.tempId} className={styles.quickAddItem}>
+                              <span>{t.title}</span>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => removeQuickAdd(t.tempId)}
+                              >
+                                Supprimer
+                              </Button>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </section>
                   ) : null}
-                </section>
 
-                {/* Aperçu de l'agenda de demain */}
-                <section aria-labelledby="agenda-tomorrow" className={styles.section}>
-                  <h2 id="agenda-tomorrow" className={styles.sectionTitle}>
-                    Agenda de demain ({formatLocalDateLong(tomorrow, locale)})
-                  </h2>
-                  {!calendarTomorrow || calendarTomorrow.items.length === 0 ? (
-                    <p>Aucun événement prévu demain dans l'agenda.</p>
-                  ) : (
-                    <ul className={styles.taskList}>
-                      {calendarTomorrow.items.map((ev) => (
-                        <li key={ev.uid} className={styles.agendaItem}>
-                          <strong>{ev.title}</strong>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </section>
+                  {/* Étape 4 : bilan de la journée + agenda de demain */}
+                  {showSummary ? (
+                    <>
+                      <section aria-labelledby="bilan-section" className={styles.section}>
+                        <h2 id="bilan-section" className={styles.sectionTitle}>
+                          Bilan de la journée
+                        </h2>
+                        <div className={styles.statsGrid}>
+                          <div className={styles.statCard}>
+                            <div className={styles.statValue}>{doneReminders.length}</div>
+                            <div className={styles.statLabel}>Tâches faites</div>
+                          </div>
+                          <div className={styles.statCard}>
+                            <div className={styles.statValue}>{postponedCount}</div>
+                            <div className={styles.statLabel}>Tâches reportées</div>
+                          </div>
+                          <div className={styles.statCard}>
+                            <div className={styles.statValue}>{abandonedCount}</div>
+                            <div className={styles.statLabel}>Tâches abandonnées</div>
+                          </div>
+                          <div className={styles.statCard}>
+                            <div className={styles.statValue}>{addedCount}</div>
+                            <div className={styles.statLabel}>Ajoutées pour demain</div>
+                          </div>
+                        </div>
+                      </section>
 
-                {/* Clôture Bonne soirée */}
-                <div ref={finishRef} className={styles.finishContainer}>
-                  <Button size="lg" variant="primary" onClick={() => void handleFinish()}>
-                    Bonne soirée 🌙
+                      <section aria-labelledby="agenda-tomorrow" className={styles.section}>
+                        <h2 id="agenda-tomorrow" className={styles.sectionTitle}>
+                          Agenda de demain ({formatLocalDateLong(tomorrow, locale)})
+                        </h2>
+                        {!calendarTomorrow || calendarTomorrow.items.length === 0 ? (
+                          <p className={styles.emptyNote}>
+                            Aucun événement prévu demain dans l'agenda.
+                          </p>
+                        ) : (
+                          <ul className={styles.taskList}>
+                            {calendarTomorrow.items.map((ev) => (
+                              <li key={ev.uid} className={styles.agendaItem}>
+                                <strong>{ev.title}</strong>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </section>
+                    </>
+                  ) : null}
+                </div>
+              )}
+
+              {/* Navigation entre les étapes */}
+              {isFinished ? (
+                <div className={styles.finishedBack}>
+                  <Button size="sm" variant="ghost" onClick={handleCloseNavigation}>
+                    Retour au dashboard
                   </Button>
                 </div>
-              </>
-            )}
-          </div>
-        )}
+              ) : (
+                <div
+                  className={[styles.stepNavSlot, entryFade(1150).className]
+                    .filter(Boolean)
+                    .join(" ")}
+                  style={entryFade(1150).style}
+                >
+                  <div className={styles.navFade} aria-hidden="true" />
+                  <div className={styles.stepNav}>
+                    {step > 0 ? (
+                      <Button variant="ghost" onClick={() => goToStep(step - 1)}>
+                        ← Précédent
+                      </Button>
+                    ) : (
+                      <span />
+                    )}
+                    {step < lastStep ? (
+                      <Button variant="primary" onClick={() => goToStep(step + 1)}>
+                        Suivant →
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="primary"
+                        className={styles.finishButton}
+                        disabled={finishing}
+                        onClick={() => void handleFinish()}
+                      >
+                        Bonne soirée 🌙
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </main>
     </div>
   );

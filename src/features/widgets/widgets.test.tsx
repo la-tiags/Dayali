@@ -134,8 +134,180 @@ describe("CalendarWidget", () => {
         view={agendaView}
         logicalDate="2026-11-12"
         injectedItems={[]}
+        injectedReminders={[]}
+      />,
+    );
+    // Vue « Aujourd'hui » vide : la journée est terminée, pas « aucune période ».
+    expect(screen.getByText("C’est tout pour aujourd’hui")).toBeInTheDocument();
+
+    rerender(
+      <CalendarWidget
+        placement={{ ...placement, module: "agenda" }}
+        view={{ ...agendaView, filter: { rangeDays: 7, includeAllDay: true } }}
+        logicalDate="2026-11-12"
+        injectedItems={[]}
       />,
     );
     expect(screen.getByText("Aucun événement sur cette période.")).toBeInTheDocument();
+  });
+
+  it("ne garde que le jour logique et retire les événements terminés", () => {
+    const timed = (uid: string, title: string, day: string, from: string, to: string) =>
+      ({
+        calendarId: "c",
+        uid,
+        title,
+        allDay: false,
+        start: { dateTime: `${day}T${from}:00.000Z`, timeZone: "UTC" },
+        end: { dateTime: `${day}T${to}:00.000Z`, timeZone: "UTC" },
+      }) as unknown as CalendarItem;
+
+    render(
+      <CalendarWidget
+        placement={{ ...placement, module: "agenda" }}
+        view={agendaView}
+        logicalDate="2026-11-12"
+        locale="fr-FR"
+        now={new Date("2026-11-12T12:00:00.000Z")}
+        injectedItems={[
+          timed("past", "Petit-déjeuner", "2026-11-12", "07:00", "08:00"),
+          timed("next", "Cours de droit", "2026-11-12", "14:00", "15:00"),
+          timed("tomorrow", "Rendez-vous dentiste", "2026-11-13", "09:00", "10:00"),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Cours de droit")).toBeInTheDocument();
+    expect(screen.queryByText("Petit-déjeuner")).not.toBeInTheDocument();
+    expect(screen.queryByText("Rendez-vous dentiste")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Passés" })).not.toBeInTheDocument();
+  });
+
+  it("affiche la journée terminée, avec puis sans tâches restantes", () => {
+    const past = {
+      calendarId: "c",
+      uid: "past-done",
+      title: "Petit-déjeuner",
+      allDay: false,
+      start: { dateTime: "2026-11-12T07:00:00.000Z", timeZone: "UTC" },
+      end: { dateTime: "2026-11-12T08:00:00.000Z", timeZone: "UTC" },
+    } as unknown as CalendarItem;
+
+    const { rerender } = render(
+      <CalendarWidget
+        placement={{ ...placement, module: "agenda" }}
+        view={agendaView}
+        logicalDate="2026-11-12"
+        locale="fr-FR"
+        now={new Date("2026-11-12T20:00:00.000Z")}
+        injectedItems={[past]}
+        injectedReminders={[
+          { ...reminder, status: "open" },
+          { ...reminder, id: "r2", status: "open" },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("C’est tout pour aujourd’hui")).toBeInTheDocument();
+    expect(screen.getByText(/Il vous reste quelques tâches à faire/)).toBeInTheDocument();
+    expect(screen.queryByText("Petit-déjeuner")).not.toBeInTheDocument();
+
+    rerender(
+      <CalendarWidget
+        placement={{ ...placement, module: "agenda" }}
+        view={agendaView}
+        logicalDate="2026-11-12"
+        locale="fr-FR"
+        now={new Date("2026-11-12T20:00:00.000Z")}
+        injectedItems={[past]}
+        injectedReminders={[]}
+      />,
+    );
+    expect(screen.getByText("C’est tout pour aujourd’hui")).toBeInTheDocument();
+    expect(screen.queryByText(/Il vous reste/)).not.toBeInTheDocument();
+  });
+
+  it("met en avant l'événement en cours avec son horaire et son lieu", () => {
+    const ongoing = {
+      calendarId: "c",
+      uid: "ongoing",
+      title: "Point d'équipe",
+      allDay: false,
+      location: "Salle 2",
+      start: { dateTime: "2026-11-12T10:00:00.000Z", timeZone: "UTC" },
+      end: { dateTime: "2026-11-12T11:00:00.000Z", timeZone: "UTC" },
+    } as unknown as CalendarItem;
+
+    render(
+      <CalendarWidget
+        placement={{ ...placement, module: "agenda" }}
+        view={agendaView}
+        logicalDate="2026-11-12"
+        locale="fr-FR"
+        now={new Date("2026-11-12T10:30:00.000Z")}
+        injectedItems={[ongoing]}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "En cours" })).toBeInTheDocument();
+    expect(screen.getByText("Point d'équipe")).toBeInTheDocument();
+    expect(screen.getByText("10:00 – 11:00")).toBeInTheDocument();
+    expect(screen.getByText("Salle 2")).toBeInTheDocument();
+  });
+
+  it("groupe les événements par jour dans une vue de plusieurs jours", () => {
+    const later = {
+      calendarId: "c",
+      uid: "later",
+      title: "Déjeuner",
+      allDay: false,
+      location: "Bureau",
+      start: { dateTime: "2026-11-14T09:00:00.000Z", timeZone: "UTC" },
+      end: { dateTime: "2026-11-14T10:00:00.000Z", timeZone: "UTC" },
+    } as unknown as CalendarItem;
+
+    render(
+      <CalendarWidget
+        placement={{ ...placement, module: "agenda" }}
+        view={{ ...agendaView, filter: { rangeDays: 7, includeAllDay: true } }}
+        logicalDate="2026-11-12"
+        locale="fr-FR"
+        now={new Date("2026-11-12T08:00:00.000Z")}
+        injectedItems={[later]}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: /14 novembre 2026/ })).toBeInTheDocument();
+    expect(screen.getByText("Déjeuner")).toBeInTheDocument();
+    expect(screen.getByText("09:00 – 10:00")).toBeInTheDocument();
+    expect(screen.getByText("Bureau")).toBeInTheDocument();
+  });
+
+  it("marque aussi l'événement en cours dans une vue de plusieurs jours", () => {
+    const ongoing = {
+      calendarId: "c",
+      uid: "ongoing-week",
+      title: "R3.11 Droit contrats",
+      allDay: false,
+      location: "Amphi Olympes de Gouges",
+      start: { dateTime: "2026-11-12T09:30:00.000Z", timeZone: "UTC" },
+      end: { dateTime: "2026-11-12T11:00:00.000Z", timeZone: "UTC" },
+    } as unknown as CalendarItem;
+
+    render(
+      <CalendarWidget
+        placement={{ ...placement, module: "agenda" }}
+        view={{ ...agendaView, filter: { rangeDays: 7, includeAllDay: true } }}
+        logicalDate="2026-11-12"
+        locale="fr-FR"
+        now={new Date("2026-11-12T10:00:00.000Z")}
+        injectedItems={[ongoing]}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Aujourd’hui" })).toBeInTheDocument();
+    expect(screen.getByText("R3.11 Droit contrats")).toBeInTheDocument();
+    expect(screen.getByText("09:30 – 11:00")).toBeInTheDocument();
+    expect(screen.getByText("En cours")).toBeInTheDocument();
   });
 });

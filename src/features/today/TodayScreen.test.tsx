@@ -374,6 +374,21 @@ describe("TodayScreen — état aperçu", () => {
     expect(screen.queryByText("Aucun événement aujourd'hui.")).not.toBeInTheDocument();
   });
 
+  it("signale l'événement en cours sur l'agenda du jour", () => {
+    renderToday({
+      initialPhase: "preview",
+      // 09:30 à Paris : la réunion 09:00 – 10:00 est en cours.
+      now: new Date("2026-10-26T08:30:00.000Z"),
+      remindersStatus: "ready",
+      agendaStatus: "ready",
+      agenda: [calendarEvent({ title: "Réunion d'équipe", location: "Salle 2" })],
+    });
+
+    const panel = screen.getByRole("heading", { name: "Agenda du jour" }).closest("section");
+    expect(panel).toHaveTextContent("Réunion d'équipe");
+    expect(panel).toHaveTextContent("En cours");
+  });
+
   it("affiche les avertissements d'agenda sans les masquer", () => {
     const warning =
       "calendar/0199a1b2-0000-7000-8000-000000000401.ics : E_SCHEMA_INVALID — ligne illisible";

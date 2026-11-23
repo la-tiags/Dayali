@@ -7,8 +7,20 @@ import { useEffect, useState } from "react";
 export function useClock(intervalMs = 1000): Date {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), intervalMs);
-    return () => window.clearInterval(timer);
+    const tick = () => setNow(new Date());
+    const timer = window.setInterval(tick, intervalMs);
+    // Une machine en veille ne fait pas tourner les minuteurs : au retour de la fenêtre, l'heure
+    // est relue tout de suite, pour que la journée logique ne reste pas celle de la veille.
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", tick);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", tick);
+    };
   }, [intervalMs]);
   return now;
 }

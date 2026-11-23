@@ -101,6 +101,22 @@ describe("DashboardScreen", () => {
     expect(screen.getAllByRole("button", { name: "Supprimer" })).toHaveLength(3);
   });
 
+  it("propose plusieurs vues d'agenda à l'ajout d'un widget", async () => {
+    const user = userEvent.setup();
+    const onAddWidget = vi.fn();
+    renderDashboard({ onAddWidget });
+
+    await user.click(screen.getByRole("button", { name: "Modifier la disposition" }));
+    await user.click(screen.getByRole("button", { name: "+ Ajouter un widget" }));
+
+    expect(screen.getByRole("menuitem", { name: /Aujourd'hui/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /7 jours/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /30 jours/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("menuitem", { name: /Aujourd'hui/ }));
+    expect(onAddWidget).toHaveBeenCalledWith({ type: "agenda", view: "day" });
+  });
+
   it("affiche un état vide honnête quand aucun widget n'est configuré", () => {
     renderDashboard({
       config: {
@@ -230,22 +246,37 @@ describe("DashboardScreen", () => {
     expect(onChangeWidgetList).toHaveBeenCalledWith("w1", "list-ecole");
   });
 
-  it("affiche la poignée de déplacement uniquement en mode édition et permet le déplacement au clavier", async () => {
+  it("déplace un widget au clavier en mode édition, sans bouton « Déplacer » dédié", async () => {
     const user = userEvent.setup();
     const { props } = renderDashboard();
 
-    expect(screen.queryByRole("button", { name: "Déplacer Ma journée" })).not.toBeInTheDocument();
+    const card = screen.getByRole("region", { name: "Ma journée" });
+    expect(card).not.toHaveAttribute("tabindex");
 
     await user.click(screen.getByRole("button", { name: "Modifier la disposition" }));
 
-    const dragHandle = screen.getByRole("button", { name: "Déplacer Ma journée" });
-    expect(dragHandle).toBeInTheDocument();
+    // Plus de poignée dédiée : le widget lui-même se saisit (souris) ou se focalise (clavier).
+    expect(screen.queryByRole("button", { name: /Déplacer/ })).not.toBeInTheDocument();
+    expect(card).toHaveAttribute("tabindex", "0");
 
-    dragHandle.focus();
+    card.focus();
     await user.keyboard("{ArrowRight}");
     expect(props.onMoveWidget).toHaveBeenCalledWith("w1", "right");
 
     await user.keyboard("{ArrowDown}");
     expect(props.onMoveWidget).toHaveBeenCalledWith("w1", "down");
+  });
+
+  it("masque le bouton Fin de journée pendant la modification de la disposition", async () => {
+    const user = userEvent.setup();
+    renderDashboard();
+
+    expect(screen.getByRole("button", { name: "Fin de journée" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Modifier la disposition" }));
+    expect(screen.queryByRole("button", { name: "Fin de journée" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Terminer la modification" }));
+    expect(screen.getByRole("button", { name: "Fin de journée" })).toBeInTheDocument();
   });
 });

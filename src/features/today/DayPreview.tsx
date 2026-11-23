@@ -50,6 +50,14 @@ function agendaTimeLabel(item: CalendarItem, locale: string): string {
   return `${start} – ${end}`;
 }
 
+/** Événement horaire commencé mais pas terminé : c'est « maintenant » sur l'accueil. */
+function isOngoingEvent(item: CalendarItem, nowMs: number): boolean {
+  if ("date" in item.start || "date" in item.end) return false;
+  const start = Date.parse(item.start.dateTime);
+  const end = Date.parse(item.end.dateTime);
+  return start <= nowMs && nowMs < end;
+}
+
 /** Échéance lisible d'un rappel (date longue + heure convertie dans le fuseau d'affichage). */
 function dueLabel(reminder: Reminder, displayTimeZone: string, locale: string): string {
   if (!reminder.dueDate) return "Sans échéance";
@@ -143,6 +151,7 @@ export function DayPreview({
 
   const startedAt =
     lastDayStartedAt !== null ? formatClock(new Date(lastDayStartedAt), timeZone, locale) : null;
+  const nowMs = (now ?? new Date()).getTime();
 
   return (
     <div className={styles.previewContent}>
@@ -284,10 +293,28 @@ export function DayPreview({
                       : `${item.calendarId}:${item.uid}:${JSON.stringify(item.occurrenceStart)}`
                   }
                 >
-                  <span className={styles.agendaTitle}>{item.title}</span>
+                  <span className={styles.agendaTitle}>
+                    {"calendarColor" in item && item.calendarColor ? (
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          display: "inline-block",
+                          width: "0.5rem",
+                          height: "0.5rem",
+                          marginRight: "0.4rem",
+                          borderRadius: "50%",
+                          backgroundColor: item.calendarColor,
+                        }}
+                      />
+                    ) : null}
+                    {item.title}
+                  </span>
                   <span className={styles.agendaTime}>{agendaTimeLabel(item, locale)}</span>
                   {item.location ? (
                     <span className={styles.agendaLocation}>{item.location}</span>
+                  ) : null}
+                  {isOngoingEvent(item, nowMs) ? (
+                    <span className={styles.ongoingBadge}>En cours</span>
                   ) : null}
                 </li>
               ))}

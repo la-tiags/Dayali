@@ -6,11 +6,13 @@
 
 import type { ReminderReportInput } from "../contracts/end-of-day";
 import type {
+  CalendarFeed,
   CalendarListResult,
   Config,
   ConfigSnapshot,
   DayState,
   DeepPartial,
+  FeedAddInput,
   FeedStatus,
   FileRef,
   LocalCalendarEvent,
@@ -118,6 +120,11 @@ export interface HomePhotoInput {
   readonly query: string | null;
 }
 
+export interface HomePhotoSeenInput {
+  readonly id: string;
+  readonly logicalDate: LocalDate;
+}
+
 export interface IpcApi {
   vaultOpen(input: VaultOpenInput): Promise<VaultInfo>;
   /** Crée `<parentPath>/<name>/` puis son `.dayali/`, sans jamais écraser l'existant. */
@@ -126,6 +133,8 @@ export interface IpcApi {
 
   configGet(): Promise<ConfigSnapshot>;
   configPatch(input: ConfigPatchInput): Promise<ConfigSnapshot>;
+  /** Couleur d'accent du système (`#rrggbb`), `null` si la plateforme ne l'expose pas. */
+  systemAccentColor(): Promise<string | null>;
 
   machineLocalGet(): Promise<MachineLocal>;
 
@@ -140,6 +149,11 @@ export interface IpcApi {
   calendarSave(input: CalendarSaveInput): Promise<LocalCalendarEvent>;
   calendarDelete(input: CalendarDeleteInput): Promise<void>;
   calendarImportFeed(input: CalendarImportFeedInput): Promise<FeedStatus>;
+  // Calendriers abonnés par URL (lecture seule, propres à la machine).
+  calendarFeedList(): Promise<CalendarFeed[]>;
+  calendarFeedAdd(input: FeedAddInput): Promise<CalendarFeed>;
+  calendarFeedRemove(input: { readonly feedId: string }): Promise<void>;
+  calendarFeedRefresh(input?: { readonly feedId?: string }): Promise<CalendarFeed[]>;
 
   // Module Rappels (étape (c)) : listes multiples, « Ma journée », dates.
   reminderList(filter?: RemindersFilter): Promise<Reminder[]>;
@@ -156,4 +170,11 @@ export interface IpcApi {
   // Photo d'accueil Unsplash (mode en ligne optionnel). La clé de l'app reste en Rust.
   /** `null` sans clé ; l'UI garde alors la photo Wikimedia embarquée. */
   homePhotoUnsplash(input: HomePhotoInput): Promise<HomePhoto | null>;
+  /**
+   * Identifiants des photos déjà affichées, enregistrés dans le vault (toutes machines), du plus
+   * ancien au plus récent : ils ne doivent jamais être reproposés.
+   */
+  homePhotoSeenList(): Promise<string[]>;
+  /** Enregistre dans le vault qu'une photo a été affichée pendant cette journée logique. */
+  homePhotoSeenRecord(input: HomePhotoSeenInput): Promise<void>;
 }

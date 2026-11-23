@@ -1,8 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  CalendarFeed,
   CalendarListResult,
   ConfigSnapshot,
   DayState,
+  FeedAddInput,
   FeedStatus,
   FileRef,
   LocalCalendarEvent,
@@ -50,6 +52,8 @@ export const tauriIpc: IpcApi = {
       expectedRevision: input.expectedRevision,
     }),
 
+  systemAccentColor: () => invoke<string | null>("system_accent_color"),
+
   machineLocalGet: () => invoke<MachineLocal>("machine_local_get"),
 
   dayStateGet: () => invoke<DayState>("day_state_get"),
@@ -72,6 +76,23 @@ export const tauriIpc: IpcApi = {
 
   calendarImportFeed: (input: CalendarImportFeedInput) =>
     invoke<FeedStatus>("calendar_import_feed", { feedId: input.feedId, url: input.url }),
+
+  calendarFeedList: () => invoke<CalendarFeed[]>("calendar_feed_list"),
+
+  calendarFeedAdd: (input: FeedAddInput) =>
+    invoke<CalendarFeed>("calendar_feed_add", {
+      input: {
+        name: input.name,
+        url: input.url,
+        visibility: input.visibility,
+        color: input.color ?? null,
+      },
+    }),
+
+  calendarFeedRemove: (input) => invoke<void>("calendar_feed_remove", { feedId: input.feedId }),
+
+  calendarFeedRefresh: (input) =>
+    invoke<CalendarFeed[]>("calendar_feed_refresh", { feedId: input?.feedId ?? null }),
 
   reminderList: (input) => invoke<Reminder[]>("reminder_list", input ? { filter: input } : {}),
 
@@ -103,4 +124,8 @@ export const tauriIpc: IpcApi = {
     }),
 
   homePhotoUnsplash: (input) => invoke<HomePhoto | null>("home_photo_unsplash", { input }),
+
+  homePhotoSeenList: () => invoke<string[]>("home_photo_seen_list"),
+
+  homePhotoSeenRecord: (input) => invoke<void>("home_photo_seen_record", { input }),
 };

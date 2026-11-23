@@ -304,3 +304,9 @@ export function reminderDueLabel(reminder: {
 }
 
 export type { EventTimePoint };
+
+/** Couleur et nom du calendrier abonné d'où vient un élément (rien pour un événement local). */
+export function feedAccent(item: CalendarItem): { color: string | null; name: string | null } {
+  if (isLocalCalendarEvent(item)) return { color: null, name: null };
+  return { color: item.calendarColor ?? null, name: item.calendarName ?? null };
+}

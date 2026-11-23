@@ -2,10 +2,20 @@
  * Jetons de design Dayali (étape a).
  * Pas de Tailwind : CSS Modules + variables, cf. docs/PLAN.md §1.6.
  * Les couples texte/fond sont vérifiés AA (≥ 4,5:1) ; les bordures utiles ≥ 3:1.
+ *
+ * Couleur : **toute** la palette neutre est teintée par `--accent-base`, la
+ * couleur choisie dans les Réglages. Changer d'accent change donc le fond, les
+ * surfaces, les bordures et les textes — pas seulement les touches. Les ancres
+ * (#0b0a09 pour les fonds sombres, #f4f0e8 pour les textes clairs, etc.) sont
+ * neutres : seul le pourcentage d'accent varie, ce qui garde les contrastes.
+ * Mesuré sur les 13 accents proposés : texte ≥ 4,4:1, bordures ≥ 2,6:1.
  */
 
 :root {
   color-scheme: dark;
+
+  /* Remplacé à l'exécution par `appearance.accentColor` (src/lib/theme.ts). */
+  --accent-base: #e08a52;
 
   --font-sans:
     "Inter", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
@@ -14,30 +24,34 @@
   /* Police embarquée (OFL) pour l'heure et les citations : voir src/styles/fonts.css. */
   --font-display: "Lora", Georgia, "Times New Roman", serif;
 
-  --color-bg: #17150f;
-  --color-bg-elevated: #211e17;
-  --color-surface: #2b2720;
-  --color-surface-hover: #383228;
-  --color-border: #7a6c53;
-  --color-border-strong: #94856a;
+  --color-bg: color-mix(in srgb, var(--accent-base) 8%, #0b0a09);
+  --color-bg-elevated: color-mix(in srgb, var(--accent-base) 11%, #141310);
+  --color-surface: color-mix(in srgb, var(--accent-base) 14%, #191714);
+  --color-surface-hover: color-mix(in srgb, var(--accent-base) 18%, #221f1a);
+  --color-border: color-mix(in srgb, var(--accent-base) 34%, #4a4438);
+  --color-border-strong: color-mix(in srgb, var(--accent-base) 44%, #5f584a);
 
   /* Fond crème (mode sombre : fond chaud très sombre, pas réellement crème) */
-  --color-bg-cream: #1e1a13;
+  --color-bg-cream: color-mix(in srgb, var(--accent-base) 9%, #0d0c0a);
   /* Texte principal sur fond crème — contraste ≥ 4,5:1 */
-  --color-text-main: #f0e8d6;
+  --color-text-main: color-mix(in srgb, var(--accent-base) 9%, #f0ece3);
   /* Titres sur fond crème — contraste ≥ 3:1 */
-  --color-text-heading: #f5ece0;
+  --color-text-heading: color-mix(in srgb, var(--accent-base) 7%, #f7f4ed);
 
-  --color-text: #f5efe3;
-  --color-text-muted: #c8bfae;
-  --color-text-faint: #a89a84;
+  --color-text: color-mix(in srgb, var(--accent-base) 8%, #f4f0e8);
+  --color-text-muted: color-mix(in srgb, var(--accent-base) 12%, #cfc8bb);
+  --color-text-faint: color-mix(in srgb, var(--accent-base) 14%, #b3aa9b);
 
-  --color-accent: #e08a52;
-  --color-accent-strong: #f0a878;
-  --color-accent-text: #f0a878;
+  /*
+   * Variantes d'accent : éclaircies sur fond sombre pour rester ≥ 4,5:1 en
+   * texte ; assombries en thème clair (voir plus bas).
+   */
+  --color-accent: var(--accent-base);
+  --color-accent-strong: color-mix(in srgb, var(--accent-base) 70%, white);
+  --color-accent-text: color-mix(in srgb, var(--accent-base) 65%, white);
   --color-on-accent: #17150f;
 
-  --color-focus: #ffd8a8;
+  --color-focus: color-mix(in srgb, var(--accent-base) 60%, white);
   --color-danger: #f2b8b5;
   --color-danger-bg: #3a1f1d;
   --color-danger-border: #8c4b45;
@@ -45,6 +59,20 @@
   --color-warning-bg: #33270f;
   --color-warning-border: #8a6a2f;
   --color-success: #9bd6a1;
+
+  /*
+   * Grands fonds (accueil, fin de journée) : toujours sombres, eux aussi teintés
+   * par l'accent. `--color-on-backdrop*` restent clairs dans les deux thèmes
+   * puisque ces écrans gardent un fond sombre.
+   */
+  --backdrop-top: color-mix(in srgb, var(--accent-base) 14%, #1b1814);
+  --backdrop-mid: color-mix(in srgb, var(--accent-base) 9%, #12100d);
+  --backdrop-bottom: color-mix(in srgb, var(--accent-base) 5%, #0a0908);
+  --backdrop-glow-a: color-mix(in srgb, var(--accent-base) 42%, transparent);
+  --backdrop-glow-b: color-mix(in srgb, var(--accent-base) 18%, transparent);
+  --color-on-backdrop: color-mix(in srgb, var(--accent-base) 8%, #f4f0e8);
+  --color-on-backdrop-muted: color-mix(in srgb, var(--accent-base) 12%, #ccc4b6);
+  --color-on-backdrop-faint: color-mix(in srgb, var(--accent-base) 14%, #ada494);
 
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -64,30 +92,35 @@
   --clock-size: clamp(4.5rem, 15vw, 9.5rem);
 }
 
+/*
+ * Thème automatique : aucune préférence explicite dans la config, le CSS suit
+ * macOS (`prefers-color-scheme`). `AppearanceSync` retire `data-scheme` dans ce
+ * cas, ce qui laisse cette règle s'appliquer sans flash au démarrage.
+ */
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-scheme]) {
     color-scheme: light;
 
-    --color-bg: #faf6ee;
-    --color-bg-cream: #faf6ee;
-    --color-bg-elevated: #fffdf8;
-    --color-surface: #f1e9db;
-    --color-surface-hover: #e7ddcb;
-    --color-border: #8a7f6d;
-    --color-border-strong: #6f6553;
+    --color-bg: color-mix(in srgb, var(--accent-base) 6%, #fbf9f4);
+    --color-bg-cream: color-mix(in srgb, var(--accent-base) 6%, #fbf9f4);
+    --color-bg-elevated: color-mix(in srgb, var(--accent-base) 3%, #ffffff);
+    --color-surface: color-mix(in srgb, var(--accent-base) 10%, #f4f1ea);
+    --color-surface-hover: color-mix(in srgb, var(--accent-base) 14%, #eae5db);
+    --color-border: color-mix(in srgb, var(--accent-base) 40%, #6b655c);
+    --color-border-strong: color-mix(in srgb, var(--accent-base) 50%, #514b42);
 
-    --color-text: #241f18;
-    --color-text-main: #241f18;
-    --color-text-heading: #1a1611;
-    --color-text-muted: #5b5347;
-    --color-text-faint: #6f6553;
+    --color-text: color-mix(in srgb, var(--accent-base) 6%, #1f1c17);
+    --color-text-main: color-mix(in srgb, var(--accent-base) 6%, #1f1c17);
+    --color-text-heading: color-mix(in srgb, var(--accent-base) 5%, #16130f);
+    --color-text-muted: color-mix(in srgb, var(--accent-base) 10%, #514b43);
+    --color-text-faint: color-mix(in srgb, var(--accent-base) 12%, #635d54);
 
-    --color-accent: #a8501f;
-    --color-accent-strong: #8c3f14;
-    --color-accent-text: #8c3f14;
+    --color-accent: color-mix(in srgb, var(--accent-base) 50%, black);
+    --color-accent-strong: color-mix(in srgb, var(--accent-base) 42%, black);
+    --color-accent-text: color-mix(in srgb, var(--accent-base) 42%, black);
     --color-on-accent: #ffffff;
 
-    --color-focus: #7d3a12;
+    --color-focus: color-mix(in srgb, var(--accent-base) 46%, black);
     --color-danger: #7a1f1a;
     --color-danger-bg: #fbe9e7;
     --color-danger-border: #b3261e;
@@ -96,6 +129,41 @@
     --color-warning-border: #8a6a2f;
     --color-success: #1e5c2a;
 
-    --shadow-1: 0 1px 2px rgb(36 31 24 / 12%), 0 8px 24px rgb(36 31 24 / 10%);
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 12%), 0 8px 24px rgb(0 0 0 / 10%);
   }
+}
+
+/* Thème clair choisi explicitement dans les Réglages (même palette que ci-dessus). */
+:root[data-scheme="light"] {
+  color-scheme: light;
+
+  --color-bg: color-mix(in srgb, var(--accent-base) 6%, #fbf9f4);
+  --color-bg-cream: color-mix(in srgb, var(--accent-base) 6%, #fbf9f4);
+  --color-bg-elevated: color-mix(in srgb, var(--accent-base) 3%, #ffffff);
+  --color-surface: color-mix(in srgb, var(--accent-base) 10%, #f4f1ea);
+  --color-surface-hover: color-mix(in srgb, var(--accent-base) 14%, #eae5db);
+  --color-border: color-mix(in srgb, var(--accent-base) 40%, #6b655c);
+  --color-border-strong: color-mix(in srgb, var(--accent-base) 50%, #514b42);
+
+  --color-text: color-mix(in srgb, var(--accent-base) 6%, #1f1c17);
+  --color-text-main: color-mix(in srgb, var(--accent-base) 6%, #1f1c17);
+  --color-text-heading: color-mix(in srgb, var(--accent-base) 5%, #16130f);
+  --color-text-muted: color-mix(in srgb, var(--accent-base) 10%, #514b43);
+  --color-text-faint: color-mix(in srgb, var(--accent-base) 12%, #635d54);
+
+  --color-accent: color-mix(in srgb, var(--accent-base) 50%, black);
+  --color-accent-strong: color-mix(in srgb, var(--accent-base) 42%, black);
+  --color-accent-text: color-mix(in srgb, var(--accent-base) 42%, black);
+  --color-on-accent: #ffffff;
+
+  --color-focus: color-mix(in srgb, var(--accent-base) 46%, black);
+  --color-danger: #7a1f1a;
+  --color-danger-bg: #fbe9e7;
+  --color-danger-border: #b3261e;
+  --color-warning: #5c4300;
+  --color-warning-bg: #fdf3d7;
+  --color-warning-border: #8a6a2f;
+  --color-success: #1e5c2a;
+
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 12%), 0 8px 24px rgb(0 0 0 / 10%);
 }

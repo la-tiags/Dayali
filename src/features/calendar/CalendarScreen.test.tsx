@@ -64,6 +64,23 @@ beforeEach(() => {
 });
 
 describe("CalendarScreen — création", () => {
+  it("ouvre la création dans une boîte de dialogue et la referme", async () => {
+    const user = userEvent.setup();
+    setup();
+    renderScreen();
+
+    await screen.findByText("Aucun événement du jour ni dans les 30 jours suivants.");
+    const dialog = screen.getByTestId("calendar-event-dialog");
+    expect(dialog).not.toHaveAttribute("open");
+
+    await user.click(screen.getByRole("button", { name: "Nouvel événement" }));
+    await waitFor(() => expect(dialog).toHaveAttribute("open"));
+    expect(screen.getByRole("dialog", { name: "Nouvel événement" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Fermer" }));
+    await waitFor(() => expect(dialog).not.toHaveAttribute("open"));
+  });
+
   it("crée un événement journée entière avec des dates locales", async () => {
     const user = userEvent.setup();
     const base = setup();
@@ -74,6 +91,7 @@ describe("CalendarScreen — création", () => {
     expect(
       await screen.findByText("Aucun événement du jour ni dans les 30 jours suivants."),
     ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Nouvel événement" }));
     await user.type(screen.getByLabelText("Titre de l'événement"), "Anniversaire");
     await user.click(screen.getByLabelText("Journée entière"));
     fireEvent.change(screen.getByLabelText("Début"), {
@@ -85,6 +103,7 @@ describe("CalendarScreen — création", () => {
     await user.click(screen.getByRole("button", { name: "Ajouter l'événement" }));
 
     expect(await screen.findByText("Événement créé.")).toBeInTheDocument();
+    expect(screen.getByTestId("calendar-event-dialog")).not.toHaveAttribute("open");
     expect(save).toHaveBeenCalledTimes(1);
     const input = save.mock.calls[0]?.[0];
     expect(input?.expected).toBeUndefined();
@@ -115,6 +134,7 @@ describe("CalendarScreen — création", () => {
     renderScreen();
 
     await screen.findByText("Aucun événement du jour ni dans les 30 jours suivants.");
+    await user.click(screen.getByRole("button", { name: "Nouvel événement" }));
     await user.type(screen.getByLabelText("Titre de l'événement"), "Point projet");
     fireEvent.change(screen.getByLabelText("Début"), {
       target: { value: "2026-10-27T14:00" },
@@ -141,6 +161,7 @@ describe("CalendarScreen — création", () => {
     configureIpc({ ...base, calendarSave: save });
     renderScreen();
 
+    await user.click(screen.getByRole("button", { name: "Nouvel événement" }));
     await user.type(screen.getByLabelText("Titre de l'événement"), "Invalide");
     fireEvent.change(screen.getByLabelText("Début"), {
       target: { value: "2026-10-27T15:00" },
@@ -162,6 +183,7 @@ describe("CalendarScreen — création", () => {
     renderScreen();
 
     await screen.findByText("Aucun événement du jour ni dans les 30 jours suivants.");
+    await user.click(screen.getByRole("button", { name: "Nouvel événement" }));
     await user.type(screen.getByLabelText("Titre de l'événement"), "Congrès de juin");
     await user.click(screen.getByLabelText("Journée entière"));
     fireEvent.change(screen.getByLabelText("Début"), {
@@ -422,5 +444,100 @@ describe("CalendarScreen — vues multiples et navigation", () => {
     await user.click(screen.getByRole("button", { name: "décembre" }));
     expect(screen.getByRole("tab", { name: "Mois" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("décembre 2026")).toBeInTheDocument();
+  });
+});
+
+describe("CalendarScreen — blocs horaires posés sur la grille", () => {
+  it("positionne un bloc par son heure et sa durée au lieu de l'intégrer à la ligne", async () => {
+    const user = userEvent.setup();
+    const existing = event({
+      id: "event-timed",
+      uid: "event-timed@dayali.local",
+      allDay: false,
+      start: { dateTime: "2026-10-27T08:00:00.000Z", timeZone: PARIS },
+      end: { dateTime: "2026-10-27T09:30:00.000Z", timeZone: PARIS },
+    });
+    setup([existing]);
+    renderScreen();
+
+    await screen.findByText("Réunion");
+    await user.click(screen.getByRole("tab", { name: "Semaine" }));
+
+    const block = screen.getByRole("button", { name: "Modifier « Réunion »" });
+    const slot = block.parentElement;
+    // 09:00 locale = 2 h après le début de la grille (07:00) sur 16 h ; durée 1 h 30.
+    expect(slot?.style.top).toBe("12.5%");
+    expect(slot?.style.height).toBe("9.375%");
+    expect(slot?.style.left).toBe("0%");
+    expect(slot?.style.width).toBe("100%");
+  });
+
+  it("partage la largeur entre deux événements qui se chevauchent", async () => {
+    const user = userEvent.setup();
+    const first = event({
+      id: "event-a",
+      uid: "event-a@dayali.local",
+      allDay: false,
+      start: { dateTime: "2026-10-27T07:00:00.000Z", timeZone: PARIS },
+      end: { dateTime: "2026-10-27T08:00:00.000Z", timeZone: PARIS },
+    });
+    const second = event({
+      id: "event-b",
+      uid: "event-b@dayali.local",
+      title: "Point",
+      allDay: false,
+      start: { dateTime: "2026-10-27T07:30:00.000Z", timeZone: PARIS },
+      end: { dateTime: "2026-10-27T08:30:00.000Z", timeZone: PARIS },
+    });
+    setup([first, second]);
+    renderScreen();
+
+    await screen.findByText("Réunion");
+    await user.click(screen.getByRole("tab", { name: "Semaine" }));
+
+    const reunion = screen.getByRole("button", { name: "Modifier « Réunion »" }).parentElement;
+    const point = screen.getByRole("button", { name: "Modifier « Point »" }).parentElement;
+    expect(reunion?.style.width).toBe("50%");
+    expect(reunion?.style.left).toBe("0%");
+    expect(point?.style.width).toBe("50%");
+    expect(point?.style.left).toBe("50%");
+  });
+
+  it("supprime depuis la boîte de dialogue qu'un bloc de la grille ouvre", async () => {
+    const user = userEvent.setup();
+    const existing = event({
+      id: "event-grid",
+      uid: "event-grid@dayali.local",
+      allDay: false,
+      start: { dateTime: "2026-10-27T08:00:00.000Z", timeZone: PARIS },
+      end: { dateTime: "2026-10-27T09:00:00.000Z", timeZone: PARIS },
+    });
+    const base = setup([existing]);
+    const remove = vi.fn(base.calendarDelete);
+    configureIpc({ ...base, calendarDelete: remove });
+    renderScreen();
+
+    await screen.findByText("Réunion");
+    await waitFor(() => expect(useAppStore.getState().agenda.refs[existing.id]).toBeDefined());
+    const expected = useAppStore.getState().agenda.refs[existing.id];
+
+    // En vue Semaine il n'y a plus de carte : le bloc ne propose que la boîte de dialogue,
+    // qui devient donc le seul chemin de suppression de la grille.
+    await user.click(screen.getByRole("tab", { name: "Semaine" }));
+    const dialog = screen.getByTestId("calendar-event-dialog");
+    expect(screen.queryByRole("button", { name: "Supprimer « Réunion »" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Modifier « Réunion »" }));
+    await waitFor(() => expect(dialog).toHaveAttribute("open"));
+
+    await user.click(screen.getByRole("button", { name: "Supprimer « Réunion »" }));
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("Supprimer « Réunion » ?");
+
+    await user.click(screen.getByRole("button", { name: "Confirmer la suppression" }));
+
+    expect(await screen.findByText("Événement supprimé.")).toBeInTheDocument();
+    expect(remove).toHaveBeenCalledWith({ eventId: existing.id, expected });
+    await waitFor(() => expect(dialog).not.toHaveAttribute("open"));
+    await waitFor(() => expect(screen.queryByText("Réunion")).not.toBeInTheDocument());
   });
 });

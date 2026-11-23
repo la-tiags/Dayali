@@ -204,7 +204,7 @@ impl LocalCalendarEvent {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CalendarListResult {
-    pub items: Vec<LocalCalendarEvent>,
+    pub items: Vec<CalendarItem>,
     pub warnings: Vec<String>,
 }
 
@@ -235,6 +235,12 @@ pub struct FeedOccurrence {
     pub status: EventStatus,
     /// Toujours `null` en V1 : un flux n'est pas rattaché à un projet.
     pub project_id: Option<String>,
+    /// Nom du calendrier abonné (renseigné au listage, jamais lu depuis le flux).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar_name: Option<String>,
+    /// Couleur `#RRGGBB` choisie pour le calendrier abonné.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar_color: Option<String>,
 }
 
 impl FeedOccurrence {
@@ -291,6 +297,54 @@ pub struct FeedStatus {
     pub last_modified: Option<String>,
     pub events_count: usize,
     pub error: Option<String>,
+}
+
+/// Confidentialité déclarée d'un calendrier abonné. Un calendrier privé a une adresse secrète :
+/// tant que le coffre chiffré n'existe pas, elle est stockée **en clair** sur cette machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FeedVisibility {
+    Public,
+    Private,
+}
+
+/// Abonnement à un calendrier iCal par URL (propre à la machine, hors vault).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedSubscription {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    pub visibility: FeedVisibility,
+    #[serde(default)]
+    pub color: Option<String>,
+    pub added_at: String,
+}
+
+/// Abonnement + état de la dernière synchronisation, tel que l'affiche l'interface.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarFeed {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    pub visibility: FeedVisibility,
+    pub color: Option<String>,
+    pub added_at: String,
+    pub last_fetched_at: Option<String>,
+    pub events_count: usize,
+    pub error: Option<String>,
+}
+
+/// Entrée de `calendar_feed_add`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedAddInput {
+    pub name: String,
+    pub url: String,
+    pub visibility: FeedVisibility,
+    #[serde(default)]
+    pub color: Option<String>,
 }
 
 #[cfg(test)]
@@ -388,6 +442,8 @@ mod tests {
             },
             status: EventStatus::Confirmed,
             project_id: None,
+            calendar_name: None,
+            calendar_color: None,
         };
         assert!(occurrence.validate().is_ok());
         assert!(occurrence.read_only);

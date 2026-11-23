@@ -70,6 +70,8 @@ export const MOCK_DEFAULT_CONFIG: Config = {
     dueReminders: { enabled: false },
   },
   appearance: {
+    theme: "auto",
+    accentColor: "#e08a52",
     greeting: { variants: true },
     homeImage: { mode: "bundled", showCredit: true, dim: 0.35 },
   },
