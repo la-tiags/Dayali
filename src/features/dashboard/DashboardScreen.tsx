@@ -176,6 +176,22 @@ export function DashboardScreen({
   // Redimensionnement en cours : la taille libre est écrite dans le style du widget (voir
   // startResize) ; cet état ne change qu'au début et à la fin du geste.
   const [resizingId, setResizingId] = useState<string | null>(null);
+  // Case visée pendant un redimensionnement : le widget garde sa taille jusqu'à la dépose, seule
+  // cette case en pointillés suit le geste.
+  const [dropTarget, setDropTarget] = useState<{ id: string; w: number; h: number } | null>(null);
+
+  const slotLayout = useMemo(() => {
+    if (!dropTarget) return null;
+    const resolved = resolveLayout(
+      healLayout(config.dashboard.widgets).map((widget) =>
+        widget.id === dropTarget.id
+          ? { ...widget, layout: resizeLayout(widget.layout, dropTarget.w, dropTarget.h) }
+          : widget,
+      ),
+      dropTarget.id,
+    );
+    return resolved.find((widget) => widget.id === dropTarget.id)?.layout ?? null;
+  }, [config.dashboard.widgets, dropTarget]);
 
   // Disposition affichée : layout réparé + preview de resize ou de drag appliqué en direct.
   const widgets = useMemo(() => {
@@ -264,19 +280,36 @@ export function DashboardScreen({
     let active = false;
     let previewed = false;
 
-    // Taille libre écrite directement dans le style du widget : la passer par l'état React
-    // re-rendait tout le tableau de bord à chaque frame, ce qui laissait des traînées de
-    // repaint pendant le geste.
+    // Repère du geste : un rectangle vide posé au-dessus du tableau de bord. Redimensionner le
+    // widget lui-même à chaque frame obligeait WKWebView à re-layoutiser et repeindre tout son
+    // contenu, ce qui laissait des traînées (le widget « dessinait » sur le fond). Un rectangle
+    // sans contenu ne coûte presque rien à repeindre, et le widget ne change de taille qu'à la
+    // dépose, sur la case montrée par le repère de grille.
+    let ghost: HTMLDivElement | null = null;
+    const ensureGhost = () => {
+      if (ghost) return;
+      ghost = document.createElement("div");
+      ghost.className = styles.resizeGhost ?? "";
+      ghost.setAttribute("aria-hidden", "true");
+      ghost.style.left = `${startRect.left}px`;
+      ghost.style.top = `${startRect.top}px`;
+      ghost.style.width = `${startRect.width}px`;
+      ghost.style.height = `${startRect.height}px`;
+      document.body.append(ghost);
+    };
     const applyFreeSize = () => {
-      card.style.width = `${Math.round(free.width)}px`;
-      card.style.height = `${Math.round(free.height)}px`;
+      if (!ghost) return;
+      ghost.style.width = `${Math.round(free.width)}px`;
+      ghost.style.height = `${Math.round(free.height)}px`;
     };
 
     const onMove = (move: PointerEvent) => {
       if (!active) {
         if (Math.hypot(move.clientX - originX, move.clientY - originY) < 2) return;
         active = true;
-        // Couche dédiée et repère de dépose : posés une fois le geste engagé, pas à chaque frame.
+        // Repère et contour de dépose : posés une fois le geste engagé, pas à chaque frame ;
+        // l'état React ne change plus qu'au franchissement d'une case.
+        ensureGhost();
         setResizingId(widget.id);
       }
       free = {
@@ -298,7 +331,7 @@ export function DashboardScreen({
       if (!previewed || next.w !== current.w || next.h !== current.h) {
         previewed = true;
         current = { w: next.w, h: next.h };
-        setPreview({ id: widget.id, ...current });
+        setDropTarget({ id: widget.id, ...current });
       }
     };
     const stop = (commit: boolean) => {
@@ -307,26 +340,25 @@ export function DashboardScreen({
       window.removeEventListener("pointercancel", onCancel);
       if (!active) return;
 
-      const target = commit ? current : { w: startW, h: startH };
-      // Le widget lâché glisse de sa taille libre vers la taille de la grille.
-      card.style.width = "";
-      card.style.height = "";
+      // Le repère disparaît et le widget prend sa taille de grille d'un coup : aucune taille
+      // libre ne reste dans son style, et rien n'est animé en largeur/hauteur (cette animation
+      // re-layoutisait le widget à chaque frame, exactement comme le geste lui-même).
+      ghost?.remove();
+      ghost = null;
+      setDropTarget(null);
       flushSync(() => setResizingId(null));
-      if (motionAllowed()) {
-        card.animate(
-          [
-            { width: `${free.width}px`, height: `${free.height}px` },
-            { width: `${spanW(target.w)}px`, height: `${spanH(target.h)}px` },
-          ],
-          { duration: 220, easing: SNAP_EASING },
-        );
-      }
 
       if (commit && (current.w !== startW || current.h !== startH)) {
         commitResize(widget.id, current.w, current.h);
       } else {
         setPreview(null);
       }
+      // WKWebView garde parfois des tuiles peintes en cache après un geste : ce changement
+      // d'opacité imperceptible force une recomposition complète de la page.
+      document.body.style.opacity = "0.999";
+      requestAnimationFrame(() => {
+        document.body.style.opacity = "";
+      });
     };
     const onUp = () => stop(true);
     const onCancel = () => stop(false);
@@ -702,7 +734,9 @@ export function DashboardScreen({
         {dragFree || resizingId
           ? (() => {
               const activeId = dragFree?.id ?? resizingId;
-              const dragged = widgets.find((widget) => widget.id === activeId);
+              const dragged = dragFree
+                ? widgets.find((widget) => widget.id === activeId)?.layout
+                : slotLayout;
               return dragged ? (
                 <div
                   className={styles.dropSlot}
@@ -710,8 +744,8 @@ export function DashboardScreen({
                   aria-hidden="true"
                   style={
                     {
-                      "--card-column": `${dragged.layout.x + 1} / span ${dragged.layout.w}`,
-                      "--card-row": `${dragged.layout.y + 1} / span ${dragged.layout.h}`,
+                      "--card-column": `${dragged.x + 1} / span ${dragged.w}`,
+                      "--card-row": `${dragged.y + 1} / span ${dragged.h}`,
                     } as CSSProperties
                   }
                 />

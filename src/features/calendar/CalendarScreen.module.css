@@ -853,15 +853,17 @@ span.chipEvent {
   outline-offset: 1px;
 }
 
-.currentTimeLine {
-  position: absolute;
-  /* Rendue dans la couche des blocs (qui commence à 56 px) : elle repart donc de 0. */
-  left: 0;
-  right: 0;
+/*
+ * Ligne d'avancement : calque `position: fixed` monté dans `<body>` (hors de la grille défilante).
+ * Sa position est calculée depuis la case du jour ([data-now-track]) ; rien de la grille n'est
+ * repeint quand l'heure avance, ce qui évitait les copies périmées de la ligne dans WKWebView.
+ */
+.nowLine {
+  position: fixed;
+  z-index: 60;
   height: 2px;
   /* Au-dessus des blocs, mais translucide : le texte de l'événement reste lisible dessous. */
   background-color: color-mix(in srgb, #eb4d3d 62%, transparent);
-  z-index: 4;
   pointer-events: none;
 }
 
@@ -993,16 +995,6 @@ span.chipEvent {
 
 .multiDaySlotCell:last-child {
   border-right: none;
-}
-
-.currentTimeLineCell {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background-color: color-mix(in srgb, #eb4d3d 62%, transparent);
-  z-index: 4;
-  pointer-events: none;
 }
 
 /* Month View */

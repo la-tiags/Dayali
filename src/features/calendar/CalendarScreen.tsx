@@ -1,5 +1,6 @@
 import type { FormEvent } from "react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "../../components/ui/Button";
 import {
   addDays,
@@ -439,6 +440,9 @@ export function CalendarScreen({
     return [];
   }, [viewMode, anchorDate]);
 
+  /** Le jour courant est-il dans la vue (la ligne d'avancement n'a de sens que là) ? */
+  const todayInView = viewMode === "day" ? anchorDate === todayDate : multiDays.includes(todayDate);
+
   /** Positions des événements horaires de chaque colonne des vues 3 jours / semaine. */
   const placedByDay = useMemo(() => {
     const map = new Map<LocalDate, PlacedEvent[]>();
@@ -455,6 +459,66 @@ export function CalendarScreen({
   }, [multiDays, agenda.items, timeZone]);
 
   const loading = agenda.status === "loading" || agenda.status === "idle";
+
+  // Ligne d'avancement de la journée : un calque fixe **hors** de la grille. Tant qu'elle vivait
+  // dans la grille défilante, chaque tick d'horloge laissait des copies périmées de la ligne dans
+  // WKWebView (couche à tuiles). Ici, seule cette bande de 2 px est repeinte : la grille ne bouge pas.
+  const nowLineRef = useRef<HTMLDivElement | null>(null);
+  const nowPercentRef = useRef<number | null>(nowPercent);
+  nowPercentRef.current = nowPercent;
+
+  const placeNowLine = useCallback(() => {
+    const line = nowLineRef.current;
+    if (!line) return;
+    const percent = nowPercentRef.current;
+    if (percent === null) {
+      line.style.display = "none";
+      return;
+    }
+    // Vues multi-jours : la ligne traverse toute la largeur des colonnes (elle passe donc devant
+    // les blocs des autres jours), pas seulement la colonne du jour. La gouttière des heures est
+    // mesurée sur son en-tête, qui existe même sans aucun événement.
+    const grid = document.querySelector<HTMLElement>('[data-now-grid="true"]');
+    const gutter = document.querySelector<HTMLElement>('[data-now-gutter="true"]');
+    if (grid && gutter) {
+      const gridRect = grid.getBoundingClientRect();
+      const gutterRect = gutter.getBoundingClientRect();
+      const left = gutterRect.right;
+      const width = Math.max(0, gridRect.right - left);
+      const hidden = gridRect.bottom < 0 || gridRect.top > window.innerHeight;
+      line.style.display = hidden ? "none" : "block";
+      line.style.left = `${Math.round(left)}px`;
+      line.style.width = `${Math.round(width)}px`;
+      line.style.top = `${Math.round(gridRect.top + (gridRect.height * percent) / 100)}px`;
+      return;
+    }
+    const track = document.querySelector<HTMLElement>('[data-now-track="true"]');
+    if (!track) {
+      line.style.display = "none";
+      return;
+    }
+    const rect = track.getBoundingClientRect();
+    // Grille sortie de l'écran : la ligne n'a rien à faire au-dessus du reste de la page.
+    line.style.display = rect.bottom < 0 || rect.top > window.innerHeight ? "none" : "block";
+    line.style.left = `${Math.round(rect.left)}px`;
+    line.style.width = `${Math.round(rect.width)}px`;
+    line.style.top = `${Math.round(rect.top + (rect.height * percent) / 100)}px`;
+  }, []);
+
+  // Recalage après chaque rendu (heure, jour, vue) : une mesure de case, puis trois styles.
+  useEffect(() => {
+    placeNowLine();
+  });
+
+  // Le défilement se fait dans la coquille : le captage attrape aussi ces défilements-là.
+  useEffect(() => {
+    window.addEventListener("scroll", placeNowLine, true);
+    window.addEventListener("resize", placeNowLine);
+    return () => {
+      window.removeEventListener("scroll", placeNowLine, true);
+      window.removeEventListener("resize", placeNowLine);
+    };
+  }, [placeNowLine]);
 
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -1339,7 +1403,12 @@ export function CalendarScreen({
                       </div>
                     ))}
 
-                    <div className={styles.gridEventsLayer}>
+                    <div
+                      className={styles.gridEventsLayer}
+                      data-now-track={
+                        anchorDate === todayDate && nowPercent !== null ? "true" : undefined
+                      }
+                    >
                       {placedEvents.map((entry) => (
                         <div
                           key={`${eventKey(entry.item)}:${anchorDate}`}
@@ -1354,13 +1423,6 @@ export function CalendarScreen({
                           {renderTimedBlock(entry.item, anchorDate)}
                         </div>
                       ))}
-
-                      {/* Dans la couche des blocs et après eux : l'ordre du DOM la met au-dessus, WebKit compris. */}
-                      {anchorDate === todayDate && nowPercent !== null ? (
-                        <div className={styles.currentTimeLine} style={{ top: `${nowPercent}%` }}>
-                          <span className={styles.currentTimeDot} />
-                        </div>
-                      ) : null}
                     </div>
                   </div>
 
@@ -1384,7 +1446,7 @@ export function CalendarScreen({
                 gridTemplateColumns: `56px repeat(${multiDays.length}, minmax(0, 1fr))`,
               }}
             >
-              <div className={styles.timelineGutterHeader} />
+              <div className={styles.timelineGutterHeader} data-now-gutter="true" />
               {multiDays.map((d) => (
                 <div key={d} className={styles.multiDayHeaderCell}>
                   <span className={styles.multiDayWeekday}>{getWeekdayShort(d, locale)}</span>
@@ -1426,7 +1488,7 @@ export function CalendarScreen({
               </div>
             )}
 
-            <div className={styles.multiDayTimelineGrid}>
+            <div className={styles.multiDayTimelineGrid} data-now-grid="true">
               {HOURS.map((hourStr) => {
                 return (
                   <div
@@ -1467,14 +1529,6 @@ export function CalendarScreen({
                         {renderTimedBlock(entry.item, d)}
                       </div>
                     ))}
-
-                    {/* Même règle que la vue Jour : la ligne est dans la couche des blocs, après eux. */}
-                    {d === todayDate && nowPercent !== null ? (
-                      <div
-                        className={styles.currentTimeLineCell}
-                        style={{ top: `${nowPercent}%` }}
-                      />
-                    ) : null}
                   </div>
                 ))}
               </div>
@@ -1611,6 +1665,19 @@ export function CalendarScreen({
           </div>
         ) : null}
       </section>
+      {nowPercent !== null && todayInView
+        ? createPortal(
+            <div
+              ref={nowLineRef}
+              className={styles.nowLine}
+              data-testid="calendar-now-line"
+              aria-hidden="true"
+            >
+              {viewMode === "day" ? <span className={styles.currentTimeDot} /> : null}
+            </div>,
+            document.body,
+          )
+        : null}
     </section>
   );
 }
