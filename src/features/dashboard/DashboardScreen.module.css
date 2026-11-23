@@ -259,6 +259,17 @@
   z-index: 10;
 }
 
+/* Case visée pendant le geste : elle aussi hors de la grille, sinon chaque franchissement de case
+   repeignait le tableau de bord (et laissait des traînées en WKWebView). */
+.resizeSlot {
+  position: fixed;
+  z-index: 25;
+  border: 2px dashed var(--color-accent);
+  border-radius: var(--radius-lg);
+  background-color: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  pointer-events: none;
+}
+
 /* Repère du geste de redimensionnement : un rectangle vide, hors grille, qui suit le pointeur.
    Il ne contient rien à re-layoutiser, donc WKWebView le repeint sans traînée ; le widget lui-même
    ne change de taille qu'à la dépose. */

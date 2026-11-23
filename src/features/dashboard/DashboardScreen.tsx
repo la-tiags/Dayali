@@ -106,6 +106,23 @@ function motionAllowed(): boolean {
 }
 
 /**
+ * Force une recomposition complète après un geste : WKWebView conserve parfois des tuiles peintes
+ * (le fond qui « dessine ») malgré l'invalidation. Le changement d'opacité est invisible mais
+ * provoque un nouveau rendu de la page. Le double `requestAnimationFrame` attend que la nouvelle
+ * disposition ait été peinte.
+ */
+function flushRepaint() {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      document.body.style.opacity = "0.999";
+      requestAnimationFrame(() => {
+        document.body.style.opacity = "";
+      });
+    });
+  });
+}
+
+/**
  * Anime en douceur (FLIP) les widgets dont l'emplacement change dans la grille : quand un widget
  * est déplacé, les autres glissent vers leur nouvelle place au lieu de sauter.
  */
@@ -176,22 +193,9 @@ export function DashboardScreen({
   // Redimensionnement en cours : la taille libre est écrite dans le style du widget (voir
   // startResize) ; cet état ne change qu'au début et à la fin du geste.
   const [resizingId, setResizingId] = useState<string | null>(null);
-  // Case visée pendant un redimensionnement : le widget garde sa taille jusqu'à la dépose, seule
-  // cette case en pointillés suit le geste.
-  const [dropTarget, setDropTarget] = useState<{ id: string; w: number; h: number } | null>(null);
-
-  const slotLayout = useMemo(() => {
-    if (!dropTarget) return null;
-    const resolved = resolveLayout(
-      healLayout(config.dashboard.widgets).map((widget) =>
-        widget.id === dropTarget.id
-          ? { ...widget, layout: resizeLayout(widget.layout, dropTarget.w, dropTarget.h) }
-          : widget,
-      ),
-      dropTarget.id,
-    );
-    return resolved.find((widget) => widget.id === dropTarget.id)?.layout ?? null;
-  }, [config.dashboard.widgets, dropTarget]);
+  // Pendant un redimensionnement, rien ne change dans la grille : le repère de taille libre, la
+  // case visée et son badge sont des calques posés dans <body> (voir startResize). Le tableau de
+  // bord n'est donc rendu qu'au début et à la fin du geste.
 
   // Disposition affichée : layout réparé + preview de resize ou de drag appliqué en direct.
   const widgets = useMemo(() => {
@@ -280,13 +284,15 @@ export function DashboardScreen({
     let active = false;
     let previewed = false;
 
-    // Repère du geste : un rectangle vide posé au-dessus du tableau de bord. Redimensionner le
-    // widget lui-même à chaque frame obligeait WKWebView à re-layoutiser et repeindre tout son
-    // contenu, ce qui laissait des traînées (le widget « dessinait » sur le fond). Un rectangle
-    // sans contenu ne coûte presque rien à repeindre, et le widget ne change de taille qu'à la
-    // dépose, sur la case montrée par le repère de grille.
+    // Repères du geste : des calques vides posés au-dessus du tableau de bord, hors de la grille.
+    // Redimensionner le widget (ou seulement déplacer sa case cible) à chaque frame obligeait
+    // WKWebView à re-layoutiser et repeindre la grille, ce qui laissait des traînées : le widget
+    // « dessinait » sur le fond. Ici la grille ne bouge plus du tout pendant le geste ; le widget
+    // ne prend sa taille qu'à la dépose.
     let ghost: HTMLDivElement | null = null;
-    const ensureGhost = () => {
+    let slot: HTMLDivElement | null = null;
+    let badge: HTMLSpanElement | null = null;
+    const ensureOverlays = () => {
       if (ghost) return;
       ghost = document.createElement("div");
       ghost.className = styles.resizeGhost ?? "";
@@ -295,21 +301,44 @@ export function DashboardScreen({
       ghost.style.top = `${startRect.top}px`;
       ghost.style.width = `${startRect.width}px`;
       ghost.style.height = `${startRect.height}px`;
-      document.body.append(ghost);
+      slot = document.createElement("div");
+      slot.className = styles.resizeSlot ?? "";
+      slot.setAttribute("aria-hidden", "true");
+      slot.style.left = `${startRect.left}px`;
+      slot.style.top = `${startRect.top}px`;
+      slot.style.width = `${spanW(startW)}px`;
+      slot.style.height = `${spanH(startH)}px`;
+      badge = document.createElement("span");
+      badge.className = styles.sizeBadge ?? "";
+      badge.textContent = `${startW} × ${startH}`;
+      slot.append(badge);
+      document.body.append(ghost, slot);
     };
     const applyFreeSize = () => {
       if (!ghost) return;
       ghost.style.width = `${Math.round(free.width)}px`;
       ghost.style.height = `${Math.round(free.height)}px`;
     };
+    const applyTargetCell = () => {
+      if (!slot || !badge) return;
+      slot.style.width = `${spanW(current.w)}px`;
+      slot.style.height = `${spanH(current.h)}px`;
+      badge.textContent = `${current.w} × ${current.h}`;
+    };
+    const removeOverlays = () => {
+      ghost?.remove();
+      slot?.remove();
+      ghost = null;
+      slot = null;
+      badge = null;
+    };
 
     const onMove = (move: PointerEvent) => {
       if (!active) {
         if (Math.hypot(move.clientX - originX, move.clientY - originY) < 2) return;
         active = true;
-        // Repère et contour de dépose : posés une fois le geste engagé, pas à chaque frame ;
-        // l'état React ne change plus qu'au franchissement d'une case.
-        ensureGhost();
+        // Calques posés une fois le geste engagé, puis pilotés en DOM : aucun rendu React.
+        ensureOverlays();
         setResizingId(widget.id);
       }
       free = {
@@ -331,7 +360,7 @@ export function DashboardScreen({
       if (!previewed || next.w !== current.w || next.h !== current.h) {
         previewed = true;
         current = { w: next.w, h: next.h };
-        setDropTarget({ id: widget.id, ...current });
+        applyTargetCell();
       }
     };
     const stop = (commit: boolean) => {
@@ -340,12 +369,10 @@ export function DashboardScreen({
       window.removeEventListener("pointercancel", onCancel);
       if (!active) return;
 
-      // Le repère disparaît et le widget prend sa taille de grille d'un coup : aucune taille
+      // Les calques disparaissent et le widget prend sa taille de grille d'un coup : aucune taille
       // libre ne reste dans son style, et rien n'est animé en largeur/hauteur (cette animation
       // re-layoutisait le widget à chaque frame, exactement comme le geste lui-même).
-      ghost?.remove();
-      ghost = null;
-      setDropTarget(null);
+      removeOverlays();
       flushSync(() => setResizingId(null));
 
       if (commit && (current.w !== startW || current.h !== startH)) {
@@ -353,12 +380,9 @@ export function DashboardScreen({
       } else {
         setPreview(null);
       }
-      // WKWebView garde parfois des tuiles peintes en cache après un geste : ce changement
+      // Après le nouveau rendu : WKWebView garde parfois des tuiles peintes en cache, ce changement
       // d'opacité imperceptible force une recomposition complète de la page.
-      document.body.style.opacity = "0.999";
-      requestAnimationFrame(() => {
-        document.body.style.opacity = "";
-      });
+      flushRepaint();
     };
     const onUp = () => stop(true);
     const onCancel = () => stop(false);
@@ -731,12 +755,10 @@ export function DashboardScreen({
         className={`${styles.grid} ${isEditing ? styles.gridEditing : ""}`}
         style={{ "--row-height": `${rowHeight}px` } as CSSProperties}
       >
-        {dragFree || resizingId
+        {dragFree
           ? (() => {
-              const activeId = dragFree?.id ?? resizingId;
-              const dragged = dragFree
-                ? widgets.find((widget) => widget.id === activeId)?.layout
-                : slotLayout;
+              const activeId = dragFree?.id;
+              const dragged = widgets.find((widget) => widget.id === activeId)?.layout;
               return dragged ? (
                 <div
                   className={styles.dropSlot}
@@ -856,21 +878,14 @@ export function DashboardScreen({
               ) : null}
 
               {isEditing && onResizeWidget ? (
-                <>
-                  {isResizing ? (
-                    <span className={styles.sizeBadge} aria-hidden="true">
-                      {widget.layout.w} × {widget.layout.h}
-                    </span>
-                  ) : null}
-                  <button
-                    type="button"
-                    className={styles.resizeHandle}
-                    aria-label={`Redimensionner ${widget.title ?? MODULE_LABEL[widget.module]}`}
-                    title="Glisser pour redimensionner (ou flèches du clavier)"
-                    onPointerDown={(event) => startResize(event, widget)}
-                    onKeyDown={(event) => resizeWithKeyboard(event, widget)}
-                  />
-                </>
+                <button
+                  type="button"
+                  className={styles.resizeHandle}
+                  aria-label={`Redimensionner ${widget.title ?? MODULE_LABEL[widget.module]}`}
+                  title="Glisser pour redimensionner (ou flèches du clavier)"
+                  onPointerDown={(event) => startResize(event, widget)}
+                  onKeyDown={(event) => resizeWithKeyboard(event, widget)}
+                />
               ) : null}
 
               {isEditing ? (
