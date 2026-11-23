@@ -256,7 +256,15 @@
   box-shadow:
     0 14px 32px rgb(0 0 0 / 22%),
     0 0 0 2px var(--color-accent);
-  z-index: 2;
+  z-index: 10;
+  /* La taille libre (pixels) est ancrée en haut à gauche de la zone de grille. */
+  align-self: start;
+  justify-self: start;
+  /* Couche de composition et peinture isolées : sans elles, la taille qui change à chaque
+     frame laissait des traînées de repaint (le widget « dessinait » sur le fond). */
+  contain: layout paint;
+  will-change: width, height;
+  transform: translateZ(0);
 }
 
 .cardDragging {

@@ -92,13 +92,6 @@ interface DragFree {
   stepY: number;
 }
 
-/** Taille libre (en pixels) du widget en cours de redimensionnement : elle suit le pointeur. */
-interface ResizeFree {
-  id: string;
-  width: number;
-  height: number;
-}
-
 /** Éléments sur lesquels un appui ne doit pas déclencher un déplacement. */
 const NO_DRAG_SELECTOR =
   "button, select, input, textarea, a, label, [role='button'], [role='checkbox'], [contenteditable='true']";
@@ -180,7 +173,9 @@ export function DashboardScreen({
   const [preview, setPreview] = useState<{ id: string; w: number; h: number } | null>(null);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [dragFree, setDragFree] = useState<DragFree | null>(null);
-  const [resizeFree, setResizeFree] = useState<ResizeFree | null>(null);
+  // Redimensionnement en cours : la taille libre est écrite dans le style du widget (voir
+  // startResize) ; cet état ne change qu'au début et à la fin du geste.
+  const [resizingId, setResizingId] = useState<string | null>(null);
 
   // Disposition affichée : layout réparé + preview de resize ou de drag appliqué en direct.
   const widgets = useMemo(() => {
@@ -215,7 +210,7 @@ export function DashboardScreen({
         `${widget.id}:${widget.layout.x},${widget.layout.y},${widget.layout.w},${widget.layout.h}`,
     )
     .join("|");
-  useFlipLayout(gridRef, layoutKey, dragFree?.id ?? resizeFree?.id ?? null);
+  useFlipLayout(gridRef, layoutKey, dragFree?.id ?? resizingId);
 
   const commitResize = useCallback(
     (id: string, w: number, h: number) => {
@@ -269,10 +264,20 @@ export function DashboardScreen({
     let active = false;
     let previewed = false;
 
+    // Taille libre écrite directement dans le style du widget : la passer par l'état React
+    // re-rendait tout le tableau de bord à chaque frame, ce qui laissait des traînées de
+    // repaint pendant le geste.
+    const applyFreeSize = () => {
+      card.style.width = `${Math.round(free.width)}px`;
+      card.style.height = `${Math.round(free.height)}px`;
+    };
+
     const onMove = (move: PointerEvent) => {
       if (!active) {
         if (Math.hypot(move.clientX - originX, move.clientY - originY) < 2) return;
         active = true;
+        // Couche dédiée et repère de dépose : posés une fois le geste engagé, pas à chaque frame.
+        setResizingId(widget.id);
       }
       free = {
         width: Math.min(
@@ -284,7 +289,7 @@ export function DashboardScreen({
           Math.max(bounds.minH, startRect.height + move.clientY - originY),
         ),
       };
-      setResizeFree({ id: widget.id, ...free });
+      applyFreeSize();
       const next = resizeLayout(
         widget.layout,
         Math.round((free.width + gapX) / stepX),
@@ -304,7 +309,9 @@ export function DashboardScreen({
 
       const target = commit ? current : { w: startW, h: startH };
       // Le widget lâché glisse de sa taille libre vers la taille de la grille.
-      flushSync(() => setResizeFree(null));
+      card.style.width = "";
+      card.style.height = "";
+      flushSync(() => setResizingId(null));
       if (motionAllowed()) {
         card.animate(
           [
@@ -692,9 +699,9 @@ export function DashboardScreen({
         className={`${styles.grid} ${isEditing ? styles.gridEditing : ""}`}
         style={{ "--row-height": `${rowHeight}px` } as CSSProperties}
       >
-        {dragFree || resizeFree
+        {dragFree || resizingId
           ? (() => {
-              const activeId = dragFree?.id ?? resizeFree?.id;
+              const activeId = dragFree?.id ?? resizingId;
               const dragged = widgets.find((widget) => widget.id === activeId);
               return dragged ? (
                 <div
@@ -715,7 +722,7 @@ export function DashboardScreen({
           const view = config.views.find((candidate) => candidate.id === widget.viewId);
           const free = dragFree?.id === widget.id ? dragFree : null;
           const isDragging = free !== null;
-          const isResizing = preview?.id === widget.id;
+          const isResizing = resizingId === widget.id || preview?.id === widget.id;
           return (
             <section
               key={widget.id}
@@ -737,15 +744,6 @@ export function DashboardScreen({
                 {
                   "--card-column": `${widget.layout.x + 1} / span ${widget.layout.w}`,
                   "--card-row": `${widget.layout.y + 1} / span ${widget.layout.h}`,
-                  ...(resizeFree?.id === widget.id
-                    ? {
-                        width: `${resizeFree.width}px`,
-                        height: `${resizeFree.height}px`,
-                        justifySelf: "start",
-                        alignSelf: "start",
-                        zIndex: 10,
-                      }
-                    : {}),
                   ...(free
                     ? {
                         transform: `translate3d(${free.left - widget.layout.x * free.stepX}px, ${free.top - widget.layout.y * free.stepY}px, 0) scale(1.02)`,
